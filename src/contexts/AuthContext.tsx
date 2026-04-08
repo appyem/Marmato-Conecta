@@ -11,7 +11,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
-import { UserRole, UserProfile } from '@/types/roles';
+import { UserProfile } from '@/types/roles';
 
 interface AuthContextType {
   user: User | null;

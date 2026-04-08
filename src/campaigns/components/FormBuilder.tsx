@@ -59,7 +59,7 @@ export default function FormBuilder({ fields, onChange }: FormBuilderProps) {
           </Button>
         </Box>
         
-        {fields.map((field, index) => (
+        {fields.map((field) => (
           <Box 
             key={field.id} 
             sx={{ 
@@ -99,56 +99,60 @@ export default function FormBuilder({ fields, onChange }: FormBuilderProps) {
       {/* Editor de campo */}
       {editingField && (
         <Card sx={{ flex: 1, p: 2 }}>
-          <Typography variant="h6" gutterBottom>Editar campo</Typography>
-          
-          <TextField
-            fullWidth
-            label="Etiqueta"
-            value={editingField.label}
-            onChange={(e) => updateField(editingField.id, { label: e.target.value })}
-            margin="normal"
-            size="small"
-          />
-          
-          <FormControl fullWidth margin="normal" size="small">
-            <InputLabel>Tipo de campo</InputLabel>
-            <Select
-              value={editingField.type}
-              label="Tipo de campo"
-              onChange={(e) => updateField(editingField.id, { type: e.target.value as FieldType })}
-            >
-              {FIELD_TYPES.map(type => (
-                <MenuItem key={type.value} value={type.value}>{type.label}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          
-          <TextField
-            fullWidth
-            label="Texto de ayuda"
-            value={editingField.helperText || ''}
-            onChange={(e) => updateField(editingField.id, { helperText: e.target.value })}
-            margin="normal"
-            size="small"
-          />
-          
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={editingField.required}
-                onChange={(e) => updateField(editingField.id, { required: e.target.checked })}
-              />
-            }
-            label="Campo obligatorio"
-          />
-          
-          {/* Opciones para select */}
-          {editingField.type === 'select' && (
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="subtitle2" gutterBottom>Opciones:</Typography>
-              {/* Aquí iría un editor de opciones dinámico */}
-            </Box>
-          )}
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Editar campo</Typography>
+            
+            <TextField
+              fullWidth
+              label="Etiqueta"
+              value={editingField.label}
+              onChange={(e) => updateField(editingField.id, { label: e.target.value })}
+              margin="normal"
+              size="small"
+            />
+            
+            <FormControl fullWidth margin="normal" size="small">
+              <InputLabel>Tipo de campo</InputLabel>
+              <Select
+                value={editingField.type}
+                label="Tipo de campo"
+                onChange={(e) => updateField(editingField.id, { type: e.target.value as FieldType })}
+              >
+                {FIELD_TYPES.map(type => (
+                  <MenuItem key={type.value} value={type.value}>{type.label}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            
+            <TextField
+              fullWidth
+              label="Texto de ayuda"
+              value={editingField.helperText || ''}
+              onChange={(e) => updateField(editingField.id, { helperText: e.target.value })}
+              margin="normal"
+              size="small"
+            />
+            
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={editingField.required}
+                  onChange={(e) => updateField(editingField.id, { required: e.target.checked })}
+                />
+              }
+              label="Campo obligatorio"
+            />
+            
+            {/* Opciones para select - placeholder para implementación futura */}
+            {editingField.type === 'select' && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="subtitle2" gutterBottom>Opciones:</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Editor de opciones en desarrollo...
+                </Typography>
+              </Box>
+            )}
+          </CardContent>
         </Card>
       )}
     </Box>

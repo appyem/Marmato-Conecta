@@ -5,7 +5,7 @@ export interface FormField {
   label: string;
   type: FieldType;
   required: boolean;
-  options?: { label: string; value: string }[]; // Para select
+  options?: { label: string; value: string }[];
   validation?: {
     minLength?: number;
     maxLength?: number;
@@ -24,15 +24,15 @@ export interface Campaign {
   startDate: Date;
   endDate: Date;
   isActive: boolean;
-  createdBy: string; // UID del admin
-  brigadistas: string[]; // UIDs asignados
+  createdBy: string;
+  brigadistas: string[];
   targetSegment?: {
     tipoVehiculo?: string[];
     estadoSOAT?: 'vigente' | 'vencido' | 'cercano';
     departamento?: string[];
   };
   formFields: FormField[];
-  publicUrl: string; // Enlace único para ciudadanos
+  publicUrl: string;
   stats: {
     totalResponses: number;
     completedResponses: number;
@@ -42,12 +42,15 @@ export interface Campaign {
   updatedAt: Date;
 }
 
+// ✅ Tipo seguro para respuestas dinámicas
+export type FormFieldValue = string | number | boolean | Date | File | null;
+
 export interface CampaignResponse {
   id: string;
   campaignId: string;
-  userId?: string; // Si está autenticado
-  anonymousToken?: string; // Para respuestas anónimas
-  data: Record<string, any>;
+  userId?: string;
+  anonymousToken?: string;
+  data: Record<string, FormFieldValue>; // ✅ Reemplaza 'any'
   submittedAt: Date;
   location?: {
     lat?: number;

@@ -22,19 +22,24 @@ export const storage = getStorage(app);
 export const functions = getFunctions(app);
 
 // Habilitar persistencia offline (para brigadistas)
-export const enableOfflinePersistence = async () => {
+export const enableOfflinePersistence = async (): Promise<boolean> => {
   try {
     await enableIndexedDbPersistence(db);
     console.log('✅ Persistencia offline habilitada');
     return true;
-  } catch (err: any) {
-    if (err.code === 'failed-precondition') {
+  } catch (err: unknown) {
+    const error = err as { code?: string; message?: string };
+    if (error.code === 'failed-precondition') {
       console.warn('⚠️ Múltiples tabs abiertas - offline limitado');
-    } else if (err.code === 'unimplemented') {
+    } else if (error.code === 'unimplemented') {
       console.error('❌ Browser no soporta persistencia offline');
+    } else {
+      console.error('❌ Error habilitando offline:', error.message);
     }
     return false;
   }
 };
+
+
 
 export default app;

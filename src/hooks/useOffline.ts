@@ -8,7 +8,7 @@ import {
   markAsSynced, 
   queueOperation 
 } from '@/offline/db';
-import { doc, setDoc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 export function useOfflineSync() {
   const { user } = useAuth();
@@ -19,8 +19,7 @@ export function useOfflineSync() {
     const pending = await getPendingOperations();
     if (pending.length === 0) return;
 
-    const batch = writeBatch(db);
-    
+    // ✅ Usar batch o procesar individualmente
     for (const op of pending) {
       try {
         const ref = doc(db, op.collection, op.docId);
@@ -39,12 +38,12 @@ export function useOfflineSync() {
         
         await markAsSynced(op.id);
         console.log(`✅ Synced: ${op.collection}/${op.docId}`);
-      } catch (error) {
-        console.error(`❌ Failed to sync ${op.id}:`, error);
-        // Reintentar en próxima sincronización
+      } catch (error: unknown) {
+        console.error(`❌ Failed to sync ${op.id}:`, (error as Error).message);
       }
     }
   }, [user]);
+
 
   // Escuchar cambios de conexión
   useEffect(() => {
@@ -69,7 +68,7 @@ export function useOfflineSync() {
   const saveWithOfflineSupport = useCallback(async (
     collection: string,
     docId: string,
-    data: any,
+    data: Record<string, unknown>, // ✅ Tipo seguro
     operation: 'create' | 'update' = 'create'
   ) => {
     if (navigator.onLine && user) {
