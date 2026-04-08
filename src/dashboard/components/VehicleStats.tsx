@@ -47,8 +47,8 @@ export default function VehicleStats({ data }: VehicleStatsProps) {
         <Card sx={{ height: '100%' }}>
           <CardContent>
             <Typography variant="h6" gutterBottom>Vehículos por departamento de pago</Typography>
-            <Box sx={{ height: 300 }}>
-              <ResponsiveContainer width="100%" height="100%">
+            <Box sx={{ height: 300, minHeight: 300, width: '100%', minWidth: 0 }}>
+              <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                 <BarChart data={data.byDepartment}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
