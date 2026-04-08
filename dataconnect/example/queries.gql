@@ -1,0 +1,64 @@
+query ListAllVehicles @auth(level: PUBLIC, insecureReason: "This operation is safe to expose to the public") {
+  vehicles {
+    id
+    licensePlate
+    make
+    model
+    year
+    color
+    vin
+    owner {
+      firstName
+      lastName
+    }
+  }
+}
+
+query GetCitizenProfile($citizenId: UUID!) @auth(level: USER, insecureReason: "This operation is safe to expose to all logged in users.") {
+  citizen(id: $citizenId) {
+    id
+    firstName
+    lastName
+    documentId
+    address
+    phoneNumber
+    email
+    createdAt
+    vehicles_on_owner {
+      id
+      licensePlate
+      make
+      model
+      year
+    }
+    payments_on_citizen {
+      id
+      amount
+      datePaid
+      method
+    }
+  }
+}
+
+mutation CreateInfraction($type: String!, $dateIssued: Timestamp!, $amount: Float!, $status: String!, $vehicleId: UUID) @auth(level: USER) {
+  infraction_insert(data: {
+    type: $type,
+    dateIssued: $dateIssued,
+    amount: $amount,
+    status: $status,
+    createdAt_expr: "request.time",
+    vehicleId: $vehicleId
+  })
+}
+
+mutation RecordPayment($amount: Float!, $datePaid: Timestamp!, $method: String!, $citizenId: UUID, $infractionId: UUID, $campaignId: UUID) @auth(level: USER) {
+  payment_insert(data: {
+    amount: $amount,
+    datePaid: $datePaid,
+    method: $method,
+    createdAt_expr: "request.time",
+    citizenId: $citizenId,
+    infractionId: $infractionId,
+    campaignId: $campaignId
+  })
+}

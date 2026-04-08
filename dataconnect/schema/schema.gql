@@ -1,0 +1,61 @@
+type User @table {
+  username: String!
+  email: String!
+  role: String!
+  createdAt: Timestamp!
+  displayName: String
+  phoneNumber: String
+}
+
+type Citizen @table {
+  firstName: String!
+  lastName: String!
+  documentId: String!
+  createdAt: Timestamp!
+  address: String
+  phoneNumber: String
+  email: String
+}
+
+type Vehicle @table {
+  licensePlate: String!
+  make: String!
+  model: String!
+  year: Int!
+  createdAt: Timestamp!
+  color: String
+  vin: String
+  owner: Citizen
+}
+
+type Infraction @table {
+  type: String!
+  dateIssued: Timestamp!
+  amount: Float!
+  status: String!
+  createdAt: Timestamp!
+  description: String
+  location: String
+  vehicle: Vehicle
+}
+
+type Campaign @table {
+  name: String!
+  startDate: Timestamp!
+  endDate: Timestamp!
+  type: String!
+  createdAt: Timestamp!
+  description: String
+  targetAmount: Float
+}
+
+type Payment @table {
+  amount: Float!
+  datePaid: Timestamp!
+  method: String!
+  createdAt: Timestamp!
+  referenceNumber: String
+  citizen: Citizen
+  infraction: Infraction
+  campaign: Campaign
+}

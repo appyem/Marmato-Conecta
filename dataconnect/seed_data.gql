@@ -1,0 +1,97 @@
+mutation CreateDemoData @transaction @auth(level: USER, insecureReason: "This is a seed mutation and is safe to expose to all logged in users.") {
+  citizen_insertMany(data: [
+    {
+      id: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+      firstName: "John",
+      lastName: "Doe",
+      documentId: "123456789",
+      createdAt: "2024-01-01T00:00:00Z",
+      address: "123 Main St",
+      phoneNumber: "555-1234",
+      email: "john.doe@example.com"
+    },
+    {
+      id: "b1c2d3e4-f5a6-0123-4567-890abcdef012",
+      firstName: "Jane",
+      lastName: "Smith",
+      documentId: "987654321",
+      createdAt: "2024-01-02T00:00:00Z",
+      address: "456 Oak Ave",
+      phoneNumber: "555-5678",
+      email: "jane.smith@example.com"
+    }
+  ])
+  vehicle_insertMany(data: [
+    {
+      id: "c1d2e3f4-a5b6-7890-1234-567890abcdef",
+      ownerId: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+      licensePlate: "ABC-123",
+      make: "Toyota",
+      model: "Camry",
+      year: 2020,
+      createdAt: "2024-01-03T00:00:00Z",
+      color: "Blue",
+      vin: "VIN1234567890DEF"
+    },
+    {
+      id: "d1e2f3a4-b5c6-0123-4567-890abcdef012",
+      ownerId: "b1c2d3e4-f5a6-0123-4567-890abcdef012",
+      licensePlate: "XYZ-789",
+      make: "Honda",
+      model: "Civic",
+      year: 2022,
+      createdAt: "2024-01-04T00:00:00Z",
+      color: "Red",
+      vin: "VIN0987654321ABC"
+    }
+  ])
+  infraction_insertMany(data: [
+    {
+      id: "e1f2a3b4-c5d6-7890-1234-567890abcdef",
+      vehicleId: "c1d2e3f4-a5b6-7890-1234-567890abcdef",
+      type: "Speeding",
+      dateIssued: "2024-01-05T10:00:00Z",
+      amount: 150.00,
+      status: "Unpaid",
+      createdAt: "2024-01-05T00:00:00Z",
+      description: "Exceeded speed limit on highway.",
+      location: "Highway 101"
+    },
+    {
+      id: "f1a2b3c4-d5e6-0123-4567-890abcdef012",
+      vehicleId: "d1e2f3a4-b5c6-0123-4567-890abcdef012",
+      type: "Parking Violation",
+      dateIssued: "2024-01-06T14:30:00Z",
+      amount: 50.00,
+      status: "Paid",
+      createdAt: "2024-01-06T00:00:00Z",
+      description: "Parked in a no-parking zone.",
+      location: "Downtown Plaza"
+    }
+  ])
+  campaign_insertMany(data: [
+    {
+      id: "g1h2i3j4-k5l6-7890-1234-567890abcdef",
+      name: "Traffic Safety Campaign",
+      startDate: "2024-01-01T00:00:00Z",
+      endDate: "2024-03-31T23:59:59Z",
+      type: "Public Awareness",
+      createdAt: "2023-12-01T00:00:00Z",
+      description: "Promoting safe driving habits.",
+      targetAmount: 50000.00
+    }
+  ])
+  payment_insertMany(data: [
+    {
+      id: "h1i2j3k4-l5m6-7890-1234-567890abcdef",
+      citizenId: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+      infractionId: "e1f2a3b4-c5d6-7890-1234-567890abcdef",
+      campaignId: "g1h2i3j4-k5l6-7890-1234-567890abcdef",
+      amount: 150.00,
+      datePaid: "2024-01-10T11:00:00Z",
+      method: "Credit Card",
+      createdAt: "2024-01-10T00:00:00Z",
+      referenceNumber: "PAY12345"
+    }
+  ])
+}
