@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Box, CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
-import { AuthProvider } from '@/contexts/AuthContext';
+
 
 const theme = createTheme({
   palette: {
@@ -47,7 +47,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <AuthProvider>
+    
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
@@ -60,6 +60,6 @@ export default function DashboardLayout({
           </Box>
         </Box>
       </ThemeProvider>
-    </AuthProvider>
+    
   );
 }
