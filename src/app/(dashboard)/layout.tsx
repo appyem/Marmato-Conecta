@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 import { Box, CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
@@ -24,6 +26,25 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace('/login');
+    }
+  }, [user, authLoading, router]);
+
+  // Mostrar loading mientras verifica auth
+  if (authLoading) {
+    return null; // o un spinner si prefieres
+  }
+
+  // Si no hay usuario, no renderizar nada (la redirección está en camino)
+  if (!user) {
+    return null;
+  }
 
   return (
     <AuthProvider>
