@@ -2,7 +2,7 @@
 
 import { Box, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography, Avatar } from '@mui/material';
 import { 
-  Dashboard, CarRepair, Campaign, Notifications, Settings, 
+  Dashboard, CarRepair, Campaign, Notifications, 
   Logout, Assessment 
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
@@ -17,16 +17,18 @@ type MenuItem = {
   icon: React.ElementType;
   label: string;
   href: string;
+  tabName?: string;  // ✅ Para controlar tabs en dashboard (sin cambiar URL)
   roles?: string[];
 };
 
 const menuItems: MenuItem[] = [
-  { icon: Dashboard, label: 'Dashboard', href: '/dashboard', roles: ['admin', 'brigadista'] },
-  { icon: CarRepair, label: 'Vehículos', href: '/dashboard/vehicles', roles: ['admin', 'brigadista'] },
-  { icon: Campaign, label: 'Campañas', href: '/dashboard/campaigns', roles: ['admin'] },
-  { icon: Notifications, label: 'Alertas', href: '/dashboard/alerts', roles: ['admin', 'brigadista'] },
-  { icon: Assessment, label: 'Reportes', href: '/dashboard/reports', roles: ['admin'] },
-  { icon: Settings, label: 'Configuración', href: '/dashboard/settings', roles: ['admin'] },
+  { icon: Dashboard, label: 'Dashboard', href: '/', tabName: 'resumen', roles: ['admin', 'brigadista'] },
+  { icon: CarRepair, label: 'Vehículos', href: '/', tabName: 'vehiculos', roles: ['admin', 'brigadista'] },
+  { icon: Campaign, label: 'Campañas', href: '/', tabName: 'campanas', roles: ['admin'] },
+  { icon: Notifications, label: 'Alertas', href: '/', tabName: 'alertas', roles: ['admin', 'brigadista'] },
+  { icon: Assessment, label: 'Reportes', href: '/', tabName: 'reportes', roles: ['admin'] },
+  { icon: Assessment, label: 'Brigadistas', href: '/', tabName: 'brigadistas', roles: ['admin'] },
+
 ];
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export default function Sidebar({ open, onToggle }: SidebarProps) {
@@ -34,8 +36,13 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const { profile, signOut } = useAuth();
 
-  const handleNavigation = (href: string): void => {
-    router.push(href);
+    const handleNavigation = (item: MenuItem): void => {
+    if (item.tabName) {
+      // eslint-disable-next-line react-hooks/immutability
+      window.location.hash = item.tabName;
+    } else {
+      router.push(item.href);
+    }
   };
 
   const handleLogout = async (): Promise<void> => {
@@ -88,13 +95,16 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
       {/* Navigation */}
       <List sx={{ flex: 1, py: 1 }}>
         {menuItems
-          .filter((item) => !item.roles || item.roles.includes(profile?.role || 'ciudadano'))
+          .filter((item) => !item.roles || item.roles.includes(profile?.role || 'admin'))
           .map((item) => {
-            const isActive = pathname === item.href;
+            const currentHash = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : '';
+            const isActive = item.tabName 
+              ? currentHash === item.tabName
+              : pathname === item.href;
             return (
               <ListItem key={item.href} disablePadding sx={{ px: 1 }}>
                 <ListItemButton
-                  onClick={() => handleNavigation(item.href)}
+                  onClick={() => handleNavigation(item)}
                   selected={isActive}
                   sx={{
                     borderRadius: 2,

@@ -9,7 +9,7 @@ interface HeaderProps {
 }
 
 export default function Header({ onMenuToggle }: HeaderProps) {
-  const { profile } = useAuth();
+ const { profile } = useAuth(); 
 
   return (
     <AppBar
