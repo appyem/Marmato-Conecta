@@ -24,3 +24,7 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+/* ✅ Login root styles - evita hydration error con MUI sx */
+.login-root {
+  box-sizing: border-box;
+}

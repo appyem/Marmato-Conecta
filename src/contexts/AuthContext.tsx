@@ -11,7 +11,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
-import { UserProfile } from '@/types/roles';
+import { UserProfile, UserRole } from '@/types/roles';
 
 interface AuthContextType {
   user: User | null;
@@ -31,7 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = useCallback(async (uid: string): Promise<void> => {
+      const fetchProfile = useCallback(async (uid: string): Promise<void> => {
     try {
       const docRef = doc(db, 'users', uid);
       const docSnap = await getDoc(docRef);
@@ -39,12 +39,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = docSnap.data();
         setProfile({
           ...data,
+          role: (data.role as UserRole) || 'brigadista',
           createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(),
           lastLogin: data.lastLogin?.toDate ? data.lastLogin.toDate() : undefined,
+        } as UserProfile);
+      } else {
+        setProfile({
+          uid,
+          email: '',
+          displayName: '',
+          role: 'brigadista',
+          createdAt: new Date(),
+          isActive: false,
         } as UserProfile);
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
+      setProfile({
+        uid,
+        email: '',
+        displayName: '',
+        role: 'brigadista',
+        createdAt: new Date(),
+        isActive: false,
+      } as UserProfile);
     }
   }, []);
 
@@ -66,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signInWithEmailAndPassword(auth, email, password);
   }, []);
 
-  const handleSignUp = useCallback(async (email: string, password: string, profileData: Partial<UserProfile>): Promise<void> => {
+    const handleSignUp = useCallback(async (email: string, password: string, profileData: Partial<UserProfile>): Promise<void> => {
     const credential = await createUserWithEmailAndPassword(auth, email, password);
     await updateProfile(credential.user, { displayName: profileData.displayName });
     
@@ -74,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       uid: credential.user.uid,
       email,
       displayName: profileData.displayName,
-      role: profileData.role || 'ciudadano',
+      role: profileData.role || 'brigadista',
       municipio: profileData.municipio,
       telefono: profileData.telefono,
       createdAt: new Date(),

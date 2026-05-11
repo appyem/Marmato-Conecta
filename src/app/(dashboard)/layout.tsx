@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { auth } from '@/lib/firebase';
 import { Box, CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
@@ -27,14 +28,30 @@ export default function DashboardLayout({
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  const { user, loading: authLoading } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  useEffect(() => {
-    if (!authLoading && !user) {
-      router.replace('/login');
+     
+
+      useEffect(() => {
+    // ✅ Esperar a que auth Y profile estén completamente cargados
+    if (authLoading || (user && !profile)) {
+      return;
     }
-  }, [user, authLoading, router]);
+    
+    // Si no hay usuario, redirigir a login
+    if (!user) {
+      if (auth.currentUser) return; // Race condition fix
+      router.replace('/login');
+      return;
+    }
+    
+        // ✅ Protección estricta: SOLO admins acceden al dashboard
+    if (profile?.role !== 'admin') {
+      router.replace('/login');
+      return;
+    }
+  }, [user, profile, authLoading, router]);
 
   // Mostrar loading mientras verifica auth
   if (authLoading) {

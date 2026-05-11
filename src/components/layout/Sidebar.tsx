@@ -102,7 +102,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
               ? currentHash === item.tabName
               : pathname === item.href;
             return (
-              <ListItem key={item.href} disablePadding sx={{ px: 1 }}>
+              <ListItem key={item.tabName ? `${item.href}#${item.tabName}` : item.href} disablePadding sx={{ px: 1 }}>
                 <ListItemButton
                   onClick={() => handleNavigation(item)}
                   selected={isActive}

@@ -1,27 +1,23 @@
 'use client';
 
-import { Grid, Card, CardContent, Typography, Box, LinearProgress, TextField, Button, FormControl, InputLabel, Select, MenuItem, Alert, SelectChangeEvent } from '@mui/material';
+import { Grid, Card, CardContent, Typography, Box, LinearProgress, TextField, Button, FormControl, InputLabel, Select, MenuItem, Alert, SelectChangeEvent, IconButton } from '@mui/material';
 
-import { CarRepair, Warning, CheckCircle, TrendingUp, TableChart, Notifications, Add, ArrowBack, Save, Assessment, ContentCopy } from '@mui/icons-material';
+import { CarRepair, Warning, CheckCircle, TrendingUp, TableChart, Notifications, Add, ArrowBack, Save, Assessment, ContentCopy, Edit, Delete } from '@mui/icons-material';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useAuth } from '@/contexts/AuthContext';
-// ✅ React: agregar useCallback
+
 import { useEffect, useState, ChangeEvent, FormEvent, useCallback } from 'react';
 
-// ✅ Firebase Auth: agregar createUserWithEmailAndPassword
+
 import { 
   createUserWithEmailAndPassword 
 } from 'firebase/auth';
 
-// ✅ Firebase Firestore: agregar setDoc, doc
-import { 
-  collection, query, where, getDocs, addDoc, setDoc, doc, Timestamp  
-} from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, deleteDoc, doc, setDoc, updateDoc, Timestamp } from 'firebase/firestore';
 
-// ✅ auth ya debería estar importado desde @/lib/firebase, verificar:
+
 import { db, auth } from '@/lib/firebase'; // ← Si no está 'auth', agrégalo
 
-// ✅ Tipos explícitos (sin 'any')
 type DepartmentStat = { name: string; value: number };
 type StatusStat = { name: string; value: number; color: string };
 
@@ -44,7 +40,8 @@ interface VehicleData {
   placa: string;
   conductor: string;
   departamento: string;
-  municipio?: string;  // ✅ AGREGAR ESTA LÍNEA
+  municipio?: string;
+  transito?: string;  // ✅ AGREGAR ESTA LÍNEA
   documentos?: VehicleDoc[];
   isActive?: boolean;
 }
@@ -98,6 +95,8 @@ export default function DashboardPage() {
   tecnoExpiry: ''
 });
 
+  const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
+
   // ✅ Fetch de KPIs (siempre)
   useEffect(() => {
     const fetchStats = async (): Promise<void> => {
@@ -116,7 +115,7 @@ export default function DashboardPage() {
         const threshold = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
         vehiclesData.forEach((v) => {
-          const dept = v.departamento || 'OTROS';
+          const dept = v.departamento || v.transito || 'SIN DEPARTAMENTO';
           byDepartment[dept] = (byDepartment[dept] || 0) + 1;
           
           v.documentos?.forEach((doc) => {
@@ -275,7 +274,17 @@ const handleSelectChange = (event: SelectChangeEvent<string>): void => {
       }
 
       // ✅ Guardar en Firestore
-      await addDoc(collection(db, 'vehicles'), newVehicle);
+            // ✅ Guardar en Firestore (crear o editar)
+      if (editingVehicleId) {
+        // Modo edición: actualizar documento existente
+        await updateDoc(doc(db, 'vehicles', editingVehicleId), newVehicle);
+        setVehicles(prev => prev.map(v => v.id === editingVehicleId ? { ...v, ...newVehicle, id: editingVehicleId } : v));
+        setEditingVehicleId(null); // Resetear estado de edición
+      } else {
+        // Modo creación: agregar nuevo documento
+        const docRef = await addDoc(collection(db, 'vehicles'), newVehicle);
+        setVehicles(prev => [...prev, { ...newVehicle, id: docRef.id }]);
+      }
 
       // ✅ Feedback y reset
       setFormSuccess('Vehículo registrado exitosamente');
@@ -310,6 +319,7 @@ const handleSelectChange = (event: SelectChangeEvent<string>): void => {
   };
 
   const handleCancelForm = (): void => {
+    setEditingVehicleId(null);
     setShowForm(false);
     setFormData({ 
   placa: '', 
@@ -527,6 +537,29 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
 };
 
 
+  // ✅ Función para copiar mensaje de WhatsApp prellenado
+  const copyWhatsAppMessage = (a: AlertItem): void => {
+    const expiryDate = new Date(a.expiryDate).toLocaleDateString('es-CO', {
+      day: '2-digit', month: 'long', year: 'numeric'
+    });
+    
+    const message = `Hola ${a.conductor}, te recordamos que tu ${a.docType} con placa ${a.placa.toUpperCase()} vence el ${expiryDate}. Por favor regulariza tu situación para evitar sanciones. Conecta Marmato.`;
+    
+    // Codificar para URL de WhatsApp
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/?text=${encodedMessage}`;
+    
+    // Copiar mensaje al portapapeles
+    navigator.clipboard.writeText(message).then(() => {
+      setCampaignMsg({ type: 'success', text: '✅ Mensaje copiado. Pégalo en WhatsApp para enviar.' });
+      // Abrir WhatsApp en nueva pestaña (usuario decide a quién enviarlo)
+      window.open(whatsappUrl, '_blank');
+    }).catch(() => {
+      setCampaignMsg({ type: 'error', text: '❌ No se pudo copiar el mensaje' });
+    });
+  };
+
+
   // ✅ TIPO Y ESTADOS PARA CAMPAÑAS
   interface Campaign {
     id?: string;
@@ -590,6 +623,42 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
     });
   };
 
+
+
+     // ✅ Compartir campaña por WhatsApp Web con número y disclaimer institucional
+  const shareCampaignWhatsApp = (campaignId: string, campaignName: string): void => {
+    // 1. Solicitar número de teléfono
+    const phoneNumber = window.prompt('Ingrese el número del brigadista (ej: 573001234567):');
+    
+    if (!phoneNumber || phoneNumber.trim() === '') {
+      setCampaignMsg({ type: 'error', text: '❌ Operación cancelada o número vacío.' });
+      return;
+    }
+
+    // 2. Limpiar y validar solo dígitos
+    const cleanPhone = phoneNumber.replace(/\D/g, '');
+    if (cleanPhone.length < 10) {
+      setCampaignMsg({ type: 'error', text: '❌ Número inválido. Ingrese al menos 10 dígitos con código de país (57).' });
+      return;
+    }
+
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+    const link = `${origin}/c/${campaignId}`;
+
+    // 3. Mensaje institucional + enlace
+    const message = `📢 *${campaignName} - Conecta Marmato*\n\n` +
+      `🔗 Enlace de caracterización: ${link}\n\n` +
+      `⚠️ *AVISO OFICIAL:*\n` +
+      `Este enlace es de uso exclusivo y privado para brigadistas autorizados. La Alcaldía de Marmato no se hace responsable por el uso indebido de esta plataforma ni por la divulgación del enlace a terceros. La custodia, manejo y correcta utilización del mismo es responsabilidad exclusiva del brigadista asignado. Su uso indebido podrá acarrear las sanciones administrativas correspondientes.\n\n` +
+      `Por favor, diligencie el formulario exclusivamente por este canal autorizado. Gracias por su compromiso. 🚗💙`;
+
+    // 4. Codificar y abrir WhatsApp Web
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMessage}`;
+    
+    window.open(whatsappUrl, '_blank');
+  };
+
   // Fetch campañas al entrar a la tab
   useEffect(() => {
     if (activeTab === 'campanas') {
@@ -602,6 +671,71 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
       fetch();
     }
   }, [activeTab]);
+
+
+
+
+    // ✅ Editar campaña: recarga el formulario con los datos existentes
+  const handleEditCampaign = (campaign: Campaign): void => {
+    setCampaignFormData({
+      name: campaign.name,
+      type: campaign.type,
+      targetDept: campaign.targetDept,
+      scheduledDate: campaign.scheduledDate,
+      message: campaign.message
+    });
+    setShowCampaignForm(true);
+    setCampaignMsg({ type: 'success', text: `✏️ Editando: ${campaign.name}` });
+  };
+
+  // ✅ Eliminar campaña: confirmación + Firestore delete
+  const handleDeleteCampaign = async (campaignId: string, campaignName: string): Promise<void> => {
+    if (!window.confirm(`¿Eliminar campaña "${campaignName}"? Esta acción no se puede deshacer.`)) return;
+    
+    try {
+      await deleteDoc(doc(db, 'campaigns', campaignId));
+      setCampaigns(prev => prev.filter(c => c.id !== campaignId));
+      setCampaignMsg({ type: 'success', text: '🗑️ Campaña eliminada' });
+    } catch (err: unknown) {
+      console.error('Error deleting campaign:', err);
+      const message = err instanceof Error ? err.message : 'Error al eliminar';
+      setCampaignMsg({ type: 'error', text: message });
+    }
+  };
+
+
+
+    // ✅ Editar vehículo: recarga el formulario con los datos existentes
+  const handleEditVehicle = (vehicle: VehicleData): void => {
+    setFormData({
+      placa: vehicle.placa,
+      conductor: vehicle.conductor,
+      departamento: vehicle.departamento,
+      municipio: vehicle.municipio || '',
+      soatExpiry: vehicle.documentos?.find(d => d.type === 'SOAT')?.expiryDate || '',
+      tecnoExpiry: vehicle.documentos?.find(d => d.type === 'Tecnomecánica')?.expiryDate || ''
+    });
+    setEditingVehicleId(vehicle.id || null);
+    setShowForm(true);
+    setFormSuccess('✏️ Editando vehículo');
+  };
+
+  // ✅ Eliminar vehículo: confirmación + Firestore delete
+  const handleDeleteVehicle = async (vehicleId: string, placa: string): Promise<void> => {
+    if (!window.confirm(`¿Eliminar vehículo con placa "${placa}"? Esta acción no se puede deshacer.`)) return;
+    
+    try {
+      await deleteDoc(doc(db, 'vehicles', vehicleId));
+      setVehicles(prev => prev.filter(v => v.id !== vehicleId));
+      setFormSuccess('🗑️ Vehículo eliminado');
+      // Limpiar mensaje después de 2 segundos
+      setTimeout(() => setFormSuccess(''), 2000);
+    } catch (err: unknown) {
+      console.error('Error deleting vehicle:', err);
+      const message = err instanceof Error ? err.message : 'Error al eliminar';
+      setFormError(message);
+    }
+  };
 
 
 
@@ -823,6 +957,7 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
                             <th style={{ textAlign: 'left', padding: '12px', fontWeight: 600 }}>Departamento</th>
                             <th style={{ textAlign: 'left', padding: '12px', fontWeight: 600 }}>Estado</th>
                             <th style={{ textAlign: 'left', padding: '12px', fontWeight: 600 }}>Documentos</th>
+                            <th style={{ textAlign: 'left', padding: '12px', fontWeight: 600 }}>Acciones</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -837,6 +972,7 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
                                 <td style={{ padding: '12px' }}>{v.departamento}</td>
                                 <td style={{ padding: '12px' }}><span style={{ padding: '4px 12px', borderRadius: '12px', fontSize: '12px', backgroundColor: status.color === 'success' ? '#dcfce7' : status.color === 'warning' ? '#fef3c7' : '#fee2e2', color: status.color === 'success' ? '#166534' : status.color === 'warning' ? '#92400e' : '#991b1b' }}>{status.label}</span></td>
                                 <td style={{ padding: '12px', color: '#666' }}>{v.documentos?.length || 0} doc(s)</td>
+                                <td style={{ padding: '12px' }}><Box sx={{ display: 'flex', gap: 0.5 }}><IconButton size="small" onClick={() => handleEditVehicle(v)} aria-label="Editar"><Edit fontSize="small" /></IconButton><IconButton size="small" onClick={() => handleDeleteVehicle(v.id!, v.placa)} aria-label="Eliminar" color="error"><Delete fontSize="small" /></IconButton></Box></td>
                               </tr>
                             );
                           })}
@@ -885,9 +1021,14 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
                         <Typography variant="body2" color="text.secondary">{a.docType} venció el {new Date(a.expiryDate).toLocaleDateString('es-CO')}</Typography>
                         <Typography variant="caption" color="error.main">📍 {a.departamento} - {a.municipio}</Typography>
                       </Box>
-                      <Button size="small" variant="outlined" color="error" onClick={() => handleMarkNotified(a.vehicleId, a.docType)} disabled={a.notified}>
-                        {a.notified ? '✓ Notificado' : 'Marcar notificado'}
-                      </Button>
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+  <Button size="small" variant="text" color="primary" onClick={() => copyWhatsAppMessage(a)}>
+    📱 WhatsApp
+  </Button>
+  <Button size="small" variant="outlined" color="error" onClick={() => handleMarkNotified(a.vehicleId, a.docType)} disabled={a.notified}>
+    {a.notified ? '✓ Notificado' : 'Marcar notificado'}
+  </Button>
+</Box>
                     </Box>
                   ))}
                 </Box>
@@ -943,9 +1084,14 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
                         <Typography variant="body2" color="text.secondary">{a.docType} vence el {new Date(a.expiryDate).toLocaleDateString('es-CO')} ({a.daysLeft} días)</Typography>
                         <Typography variant="caption" color="text.secondary">📍 {a.departamento} - {a.municipio}</Typography>
                       </Box>
-                      <Button size="small" variant="text" onClick={() => handleMarkNotified(a.vehicleId, a.docType)} disabled={a.notified}>
-                        {a.notified ? '✓' : 'Notificar'}
-                      </Button>
+                                            <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Button size="small" variant="text" color="primary" onClick={() => copyWhatsAppMessage(a)}>
+                          📱 WhatsApp
+                        </Button>
+                        <Button size="small" variant="text" onClick={() => handleMarkNotified(a.vehicleId, a.docType)} disabled={a.notified}>
+                          {a.notified ? '✓' : 'Notificar'}
+                        </Button>
+                      </Box>
                     </Box>
                   ))}
                 </Box>
@@ -1000,7 +1146,7 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
             <Card><CardContent>
               {campaigns.length === 0 ? <Typography color="text.secondary" align="center">No hay campañas programadas</Typography> : (
                 <Box sx={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead><tr style={{ borderBottom: '2px solid #e0e0e0' }}><th style={{ padding: '12px', textAlign: 'left' }}>Nombre</th><th style={{ padding: '12px', textAlign: 'left' }}>Tipo</th><th style={{ padding: '12px', textAlign: 'left' }}>Destino</th><th style={{ padding: '12px', textAlign: 'left' }}>Fecha</th><th style={{ padding: '12px', textAlign: 'left' }}>Estado</th><th style={{ padding: '12px', textAlign: 'left' }}>Link</th></tr></thead>
+                  <thead><tr style={{ borderBottom: '2px solid #e0e0e0' }}><th style={{ padding: '12px', textAlign: 'left' }}>Nombre</th><th style={{ padding: '12px', textAlign: 'left' }}>Tipo</th><th style={{ padding: '12px', textAlign: 'left' }}>Destino</th><th style={{ padding: '12px', textAlign: 'left' }}>Fecha</th><th style={{ padding: '12px', textAlign: 'left' }}>Estado</th><th style={{ padding: '12px', textAlign: 'left' }}>Link</th><th style={{ padding: '12px', textAlign: 'left' }}>Acciones</th></tr></thead>
                   <tbody>
                     {campaigns.map(c => (
                       <tr key={c.id || c.name} style={{ borderBottom: '1px solid #f0f0f0' }}>
@@ -1009,7 +1155,15 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
                         <td style={{ padding: '12px' }}>{c.targetDept}</td>
                         <td style={{ padding: '12px' }}>{new Date(c.scheduledDate).toLocaleDateString('es-CO')}</td>
                         <td style={{ padding: '12px' }}><span style={{ padding: '4px 10px', borderRadius: '10px', fontSize: '12px', backgroundColor: c.status === 'programada' ? '#dbeafe' : c.status === 'enviada' ? '#dcfce7' : '#f1f5f9', color: c.status === 'programada' ? '#1e40af' : c.status === 'enviada' ? '#166534' : '#475569' }}>{c.status}</span></td>
-                        <td style={{ padding: '12px' }}><Button variant="text" size="small" onClick={() => copyCampaignLink(c.id!)} startIcon={<ContentCopy fontSize="small" />}>Copiar</Button></td>
+                         <td style={{ padding: '12px' }}>
+  <Box sx={{ display: 'flex', gap: 0.5 }}>
+    <Button size="small" variant="text" color="success" onClick={() => shareCampaignWhatsApp(c.id!, c.name)} startIcon={<span style={{ fontSize: 16 }}>💬</span>}>
+     WhatsApp
+    </Button>
+    <Button variant="text" size="small" onClick={() => copyCampaignLink(c.id!)} startIcon={<ContentCopy fontSize="small" />}>Copiar</Button>
+  </Box>
+</td>
+                        <td style={{ padding: '12px' }}><Box sx={{ display: 'flex', gap: 0.5 }}><IconButton size="small" onClick={() => handleEditCampaign(c)} aria-label="Editar"><Edit fontSize="small" /></IconButton><IconButton size="small" onClick={() => handleDeleteCampaign(c.id!, c.name)} aria-label="Eliminar" color="error"><Delete fontSize="small" /></IconButton></Box></td>
                       </tr>
                     ))}
                   </tbody>

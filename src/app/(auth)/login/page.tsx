@@ -20,7 +20,9 @@ export default function LoginPage() {
 
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      router.push('/');
+      // Esperar un tick para que onAuthStateChanged propague el estado user
+      await new Promise(resolve => setTimeout(resolve, 100));
+      router.replace('/');
     } catch (err: unknown) {
       const message = mapAuthError(err);
       setError(message);
@@ -37,20 +39,24 @@ export default function LoginPage() {
     setPassword(e.target.value);
   };
 
-  return (
-    <Box sx={{ 
-        minHeight: '100vh', 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        bgcolor: '#f8fafc',
+    return (
+    <Box
+      component="div"
+      className="login-root"
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#f8fafc',
         backgroundImage: 'url(https://raw.githubusercontent.com/appyem/imagenesappy/refs/heads/main/marmato%20fondo.jpeg)',
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
         backgroundAttachment: 'fixed',
-        p: 2 
-        }}>
+        padding: '8px'
+      }}
+    >
       <Card 
         elevation={3}
         sx={{ 
