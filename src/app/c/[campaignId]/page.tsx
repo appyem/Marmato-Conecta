@@ -130,7 +130,7 @@ export default function CharacterizationPage() {
     const timeStr = now.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
     
     // 3. Construir mensaje legal exacto
-    const message = `Hola ${ownerName}, recibe este mensaje porque aceptas la legislación colombiana sobre tratamiento de datos personales (Ley 1581 de 2012).
+    const message = `Hola ${ownerName}, recibe este mensaje de tratamiento de datos personales (Ley 1581 de 2012).
 
 🔗 Norma oficial: https://www.sic.gov.co/proteccion-datos-personales
 
