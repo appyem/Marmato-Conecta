@@ -125,7 +125,7 @@ export default function VehiclesPage() {
               size="small"
             >
               <option value="">Todos</option>
-              {uniqueDepts.map(dept => <option key={dept} value={dept}>{dept}</option>)}
+              {uniqueDepts.map((dept, idx) => <option key={`${dept}-${idx}`} value={dept}>{dept}</option>)}
             </TextField>
           </Box>
         </CardContent>

@@ -3,7 +3,8 @@
 import * as functions from 'firebase-functions/v1'; // ✅ FORZAR v1
 import * as admin from 'firebase-admin';
 import { checkAndSendExpirationAlerts } from './alerts/expirationChecker';
-import { sendTestWhatsApp } from './messaging/whatsapp.service';
+import { sendTestWhatsApp, sendWhatsAppMessage } from './messaging/whatsapp.service';
+import { sendSMSMessage } from './messaging/sms.service';
 
 // Inicializar Admin
 if (!admin.apps.length) {
@@ -56,6 +57,22 @@ export interface TriggerAlertsData {
 
 export interface TestMessageData {
   phone: string;
+}
+
+
+// ✅ Tipos para envío masivo
+export interface BulkMessageData {
+  campaignId: string;
+  recipientIds?: string[]; // Opcional: si no se envía, usa todos los de la campaña
+  message: string;
+  channel: 'whatsapp' | 'sms';
+}
+
+export interface BulkMessageResult {
+  sent: number;
+  failed: number;
+  errors: Array<{ vehicleId: string; error: string }>;
+  summary: string;
 }
 
 // 🧪 Callable: Trigger manual (solo admin)
@@ -153,6 +170,91 @@ export const getAlertMetrics = functions.https.onCall(
     } catch (error: unknown) {
       console.error('❌ Error getAlertMetrics:', error);
       throw new functions.https.HttpsError('internal', 'Error fetching metrics');
+    }
+  }
+); // ✅ CIERRE CORRECTO DE getAlertMetrics
+
+// 📢 Callable: Envío masivo de WhatsApp/SMS por campaña (solo admin)
+export const sendBulkMessages = functions.https.onCall(
+  async (data: BulkMessageData, context: functions.https.CallableContext): Promise<BulkMessageResult> => {
+    // ✅ Validar autenticación y rol admin
+    if (!context.auth) {
+      throw new functions.https.HttpsError('unauthenticated', 'Login required');
+    }
+    
+    try {
+      const userRecord = await admin.auth().getUser(context.auth.uid);
+      const isAdmin = userRecord.customClaims?.admin === true;
+      if (!isAdmin) {
+        throw new functions.https.HttpsError('permission-denied', 'Solo administradores');
+      }
+    } catch (err) {
+      throw new functions.https.HttpsError('permission-denied', 'Verificación de admin fallida');
+    }
+
+    // ✅ Validar datos de entrada
+    const { campaignId, recipientIds, message, channel } = data;
+    if (!campaignId || !message || !channel) {
+      throw new functions.https.HttpsError('invalid-argument', 'campaignId, message y channel son obligatorios');
+    }
+    if (!['whatsapp', 'sms'].includes(channel)) {
+      throw new functions.https.HttpsError('invalid-argument', 'channel debe ser "whatsapp" o "sms"');
+    }
+
+    console.log(`🚀 Iniciando envío masivo: campaign=${campaignId}, channel=${channel}, recipients=${recipientIds?.length || 'todos'}`);
+
+    const result: BulkMessageResult = { sent: 0, failed: 0, errors: [], summary: '' };
+    
+    try {
+      // ✅ Consultar vehículos de la campaña
+      const vehiclesRef = admin.firestore().collection('vehicles');
+      const query = recipientIds?.length 
+        ? vehiclesRef.where('campaignId', '==', campaignId).where(admin.firestore.FieldPath.documentId(), 'in', recipientIds.slice(0, 10))
+        : vehiclesRef.where('campaignId', '==', campaignId);
+      
+      const snapshot = await query.get();
+      
+      if (snapshot.empty) {
+        return { ...result, summary: 'No se encontraron vehículos para esta campaña' };
+      }
+
+      // ✅ Procesar cada vehículo
+      for (const doc of snapshot.docs) {
+        const vehicle = doc.data();
+        const phone = vehicle.telefono;
+        
+        if (!phone) {
+          result.errors.push({ vehicleId: doc.id, error: 'Sin teléfono registrado' });
+          result.failed++;
+          continue;
+        }
+
+        try {
+          // ✅ Enviar según canal
+          if (channel === 'whatsapp') {
+            await sendWhatsAppMessage(phone, message, { vehicleId: doc.id, campaignId });
+          } else {
+            await sendSMSMessage(phone, message, { vehicleId: doc.id, campaignId });
+          }
+          result.sent++;
+          console.log(`✓ Enviado a ${phone}`);
+        } catch (sendErr: unknown) {
+          const errorMsg = sendErr instanceof Error ? sendErr.message : 'Error desconocido';
+          result.errors.push({ vehicleId: doc.id, error: errorMsg });
+          result.failed++;
+          console.error(`✗ Falló envío a ${phone}:`, errorMsg);
+        }
+      }
+
+      // ✅ Generar resumen
+      result.summary = `Enviados: ${result.sent}, Fallidos: ${result.failed}`;
+      console.log(`✅ Envío masivo completado: ${result.summary}`);
+      return result;
+
+    } catch (err: unknown) {
+      console.error('❌ Error en sendBulkMessages:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Error interno';
+      throw new functions.https.HttpsError('internal', `Error procesando envío: ${errorMsg}`);
     }
   }
 );

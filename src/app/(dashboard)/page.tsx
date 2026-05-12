@@ -1,6 +1,6 @@
 'use client';
 
-import { Grid, Card, CardContent, Typography, Box, LinearProgress, TextField, Button, FormControl, InputLabel, Select, MenuItem, Alert, SelectChangeEvent, IconButton } from '@mui/material';
+import { Grid, Card, CardContent, Typography, Box, LinearProgress, TextField, Button, FormControl, InputLabel, Select, MenuItem, Alert, SelectChangeEvent, IconButton, CircularProgress } from '@mui/material';
 
 import { CarRepair, Warning, CheckCircle, TrendingUp, TableChart, Notifications, Add, ArrowBack, Save, Assessment, ContentCopy, Edit, Delete } from '@mui/icons-material';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
@@ -46,6 +46,14 @@ interface VehicleData {
   isActive?: boolean;
 }
 
+// ✅ Extensión para mensajería: campos que existen en Firestore pero no en VehicleData base
+interface VehicleWithContact extends VehicleData {
+  telefono?: string;
+  contactoPago?: string;
+  campaignId?: string;
+  propietario?: string;
+}
+
 // ✅ Tipo para nuevo vehículo (formulario)
 interface NewVehicleForm {
   placa: string;
@@ -57,7 +65,7 @@ interface NewVehicleForm {
 }
 
 type StatusConfig = { label: string; color: 'success' | 'warning' | 'error' };
-type DashboardTab = 'resumen' | 'vehiculos' | 'alertas' | 'campanas' | 'reportes' | 'brigadistas';
+type DashboardTab = 'resumen' | 'vehiculos' | 'alertas' | 'campanas' | 'reportes' | 'brigadistas' | 'mensajeria';
 
 // ✅ Departamentos de Caldas (para dropdown)
 const COLOMBIA_DEPARTAMENTOS = [
@@ -166,7 +174,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const updateTabFromHash = () => {
       const hash = window.location.hash.replace('#', '');
-      if (['resumen', 'vehiculos', 'alertas', 'campanas', 'reportes', 'brigadistas'].includes(hash)) {
+      if (['resumen', 'vehiculos', 'alertas', 'campanas', 'reportes', 'brigadistas', 'mensajeria'].includes(hash)) {
         setActiveTab(hash as DashboardTab);
       }
     };
@@ -402,7 +410,7 @@ const handleSelectChange = (event: SelectChangeEvent<string>): void => {
   };
 
   
-    // ✅ ESTADOS Y LÓGICA PARA BRIGADISTAS
+      // ✅ ESTADOS Y LÓGICA PARA BRIGADISTAS
   interface Brigadista {
     uid: string;
     email: string;
@@ -411,70 +419,273 @@ const handleSelectChange = (event: SelectChangeEvent<string>): void => {
     municipio?: string;
     telefono?: string;
     createdAt?: Timestamp | Date;
+    updatedAt?: Date; // ✅ Agregado para edición
+    isActive?: boolean;
   }
+  
   const [brigadistas, setBrigadistas] = useState<Brigadista[]>([]);
   const [showBrigForm, setShowBrigForm] = useState(false);
   const [brigLoading, setBrigLoading] = useState(false);
   const [brigMsg, setBrigMsg] = useState<{type:'success'|'error',text:string}|null>(null);
   const [brigForm, setBrigForm] = useState({ email: '', password: '', displayName: '', municipio: '', telefono: '' });
+  const [editingBrigId, setEditingBrigId] = useState<string | null>(null);
 
+  // ✅ Handler para cambios en formulario de brigadistas
   const handleBrigChange = (e: ChangeEvent<HTMLInputElement>): void => {
     const { name, value } = e.target;
     setBrigForm(prev => ({ ...prev, [name]: value }));
     setBrigMsg(null);
   };
 
-  const handleCreateBrigadista = async (e: FormEvent): Promise<void> => {
-    e.preventDefault(); setBrigLoading(true); setBrigMsg(null);
-    if (!brigForm.email || !brigForm.password || !brigForm.displayName) {
-      setBrigMsg({ type: 'error', text: 'Email, contraseña y nombre son obligatorios' });
-      setBrigLoading(false); return;
-    }
-    try {
-      // 1. Crear usuario en Firebase Auth
-      const cred = await createUserWithEmailAndPassword(auth, brigForm.email, brigForm.password);
-      // 2. Guardar perfil en Firestore
-      await setDoc(doc(db, 'users', cred.user.uid), {
-        uid: cred.user.uid,
-        email: brigForm.email,
-        displayName: brigForm.displayName,
-        role: 'brigadista',
-        municipio: brigForm.municipio,
-        telefono: brigForm.telefono,
-        createdAt: new Date(),
-        createdBy: user?.uid
-      });
-      // 3. Feedback
-      setBrigMsg({ type: 'success', text: 'Brigadista creado exitosamente' });
-      setBrigForm({ email: '', password: '', displayName: '', municipio: '', telefono: '' });
-      setTimeout(() => setShowBrigForm(false), 1500);
-      // 4. Refrescar lista
-      fetchBrigadistas();
-    } catch (err: unknown) {
-      console.error('Error creando brigadista:', err);
-      const message = err instanceof Error ? err.message : 'Error al crear usuario';
-      setBrigMsg({ type: 'error', text: message });
-    } finally { setBrigLoading(false); }
+  // ✅ Cancelar formulario de brigadistas
+  const handleCancelBrigForm = (): void => {
+    setEditingBrigId(null);
+    setShowBrigForm(false);
+    setBrigForm({ email: '', password: '', displayName: '', municipio: '', telefono: '' });
+    setBrigMsg(null);
   };
 
+  // ✅ Fetch de brigadistas (declarado antes de usarse)
   const fetchBrigadistas = useCallback(async (): Promise<void> => {
     try {
-      // Nota: Para producción, usar índice compuesto o query más eficiente
       const snap = await getDocs(collection(db, 'users'));
       const list = snap.docs
         .map(d => d.data() as Brigadista)
-        .filter(u => u.role === 'brigadista');
+        .filter(u => u.role === 'brigadista' && u.isActive !== false);
       setBrigadistas(list);
     } catch (err: unknown) { 
-  console.error('Error fetching brigadistas:', err instanceof Error ? err.message : String(err)); 
-}
+      console.error('Error fetching brigadistas:', err instanceof Error ? err.message : String(err)); 
+    }
   }, []);
 
+  // ✅ Crear o Editar brigadista
+  const handleCreateBrigadista = async (e: FormEvent): Promise<void> => {
+    e.preventDefault(); 
+    setBrigLoading(true); 
+    setBrigMsg(null);
+    
+    if (!brigForm.email || !brigForm.displayName) {
+      setBrigMsg({ type: 'error', text: 'Email y nombre son obligatorios' });
+      setBrigLoading(false); 
+      return;
+    }
+    
+    try {
+      if (editingBrigId) {
+        // ✅ Modo edición: actualizar solo campos permitidos
+        const updateData = {
+          displayName: brigForm.displayName,
+          municipio: brigForm.municipio,
+          telefono: brigForm.telefono,
+          updatedAt: new Date()
+        };
+        await updateDoc(doc(db, 'users', editingBrigId), updateData);
+        setBrigadistas(prev => prev.map(b => b.uid === editingBrigId ? { ...b, ...updateData } : b));
+        setBrigMsg({ type: 'success', text: '✅ Brigadista actualizado' });
+      } else {
+        // ✅ Modo creación: requiere contraseña
+        if (!brigForm.password) {
+          setBrigMsg({ type: 'error', text: 'La contraseña es obligatoria para nuevos usuarios' });
+          setBrigLoading(false); 
+          return;
+        }
+        const cred = await createUserWithEmailAndPassword(auth, brigForm.email, brigForm.password);
+        await setDoc(doc(db, 'users', cred.user.uid), {
+          uid: cred.user.uid,
+          email: brigForm.email,
+          displayName: brigForm.displayName,
+          role: 'brigadista',
+          municipio: brigForm.municipio,
+          telefono: brigForm.telefono,
+          createdAt: new Date(),
+          createdBy: user?.uid,
+          isActive: true
+        });
+        setBrigMsg({ type: 'success', text: '✅ Brigadista creado exitosamente' });
+      }
+      
+      // Reset y refresh
+      setBrigForm({ email: '', password: '', displayName: '', municipio: '', telefono: '' });
+      setEditingBrigId(null);
+      setTimeout(() => setShowBrigForm(false), 1500);
+      fetchBrigadistas();
+    } catch (err: unknown) {
+      console.error('Error con brigadista:', err);
+      const message = err instanceof Error ? err.message : 'Error al procesar';
+      setBrigMsg({ type: 'error', text: message });
+    } finally { 
+      setBrigLoading(false); 
+    }
+  };
+
+  // ✅ Editar brigadista: precargar formulario
+  const handleEditBrigadista = (brig: Brigadista): void => {
+    setBrigForm({
+      email: brig.email,
+      password: '', // No mostramos contraseña por seguridad
+      displayName: brig.displayName,
+      municipio: brig.municipio || '',
+      telefono: brig.telefono || ''
+    });
+    setEditingBrigId(brig.uid);
+    setShowBrigForm(true);
+    setBrigMsg({ type: 'success', text: `✏️ Editando: ${brig.displayName}` });
+  };
+
+  // ✅ Eliminar brigadista (soft delete)
+  const handleDeleteBrigadista = async (brigId: string, brigName: string): Promise<void> => {
+    if (!window.confirm(`¿Desactivar brigadista "${brigName}"? Esto impedirá su acceso al sistema.`)) return;
+    
+    try {
+      await updateDoc(doc(db, 'users', brigId), { isActive: false });
+      setBrigadistas(prev => prev.filter(b => b.uid !== brigId));
+      setBrigMsg({ type: 'success', text: `🗑️ ${brigName} desactivado` });
+    } catch (err: unknown) {
+      console.error('Error desactivando brigadista:', err);
+      const message = err instanceof Error ? err.message : 'Error al desactivar';
+      setBrigMsg({ type: 'error', text: message });
+    }
+  };
+
+  // ✅ Cargar brigadistas al entrar a la tab
   useEffect(() => {
     if (activeTab === 'brigadistas') fetchBrigadistas();
   }, [activeTab, fetchBrigadistas]);
 
  
+
+    // ✅ ESTADOS PARA MENSAJERÍA MASIVA
+  const [bulkCampaigns, setBulkCampaigns] = useState<Campaign[]>([]);
+  const [bulkContacts, setBulkContacts] = useState<Array<{ id: string; nombre: string; telefono: string; campaignId: string }>>([]);
+  const [selectedCampaign, setSelectedCampaign] = useState<string>('');
+  const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
+  const [messageText, setMessageText] = useState<string>('');
+  const [sendChannel, setSendChannel] = useState<'whatsapp' | 'sms'>('whatsapp');
+  const [sending, setSending] = useState<boolean>(false);
+  const [sendResult, setSendResult] = useState<{ sent: number; failed: number; summary: string } | null>(null);
+
+  // ✅ Fetch de campañas para el selector de mensajería
+  const fetchBulkCampaigns = useCallback(async (): Promise<void> => {
+    try {
+      const snap = await getDocs(collection(db, 'campaigns'));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Campaign));
+      setBulkCampaigns(list);
+    } catch (err) {
+      console.error('Error fetching campaigns for bulk messaging:', err);
+    }
+  }, []);
+
+    // ✅ Fetch de contactos filtrados por campaña (tipado seguro, sin 'any')
+  const fetchBulkContacts = useCallback(async (campaignId: string): Promise<void> => {
+    if (!campaignId) return;
+    try {
+      setBulkContacts([]);
+      // ✅ Query correcta con query() + where()
+      const q = query(collection(db, 'vehicles'), where('campaignId', '==', campaignId));
+      const snap = await getDocs(q);
+      
+      const list = snap.docs.map(d => {
+        // ✅ Cast seguro a la interfaz extendida (no 'any')
+        const data = d.data() as VehicleWithContact;
+        return {
+          id: d.id,
+          nombre: data.conductor || data.propietario || 'Sin nombre',
+          telefono: data.telefono || data.contactoPago || '',
+          campaignId: data.campaignId || campaignId
+        };
+      }).filter(c => c.telefono); // Solo contactos con teléfono
+      
+      setBulkContacts(list);
+      setSelectedContactIds([]);
+      setSendResult(null);
+    } catch (err) {
+      console.error('Error fetching contacts:', err);
+    }
+  }, []);
+
+  // ✅ Cargar campañas al entrar a la tab
+  useEffect(() => {
+    if (activeTab === 'mensajeria') {
+      fetchBulkCampaigns();
+    }
+  }, [activeTab, fetchBulkCampaigns]);
+
+  // ✅ Cargar contactos al cambiar campaña seleccionada
+  useEffect(() => {
+    if (selectedCampaign) {
+      fetchBulkContacts(selectedCampaign);
+    }
+  }, [selectedCampaign, fetchBulkContacts]);
+
+  // ✅ Toggle selección individual
+  const toggleContactSelection = (contactId: string): void => {
+    setSelectedContactIds(prev => 
+      prev.includes(contactId) 
+        ? prev.filter(id => id !== contactId) 
+        : [...prev, contactId]
+    );
+  };
+
+  // ✅ Seleccionar/deseleccionar todos
+  const toggleSelectAll = (): void => {
+    if (selectedContactIds.length === bulkContacts.length) {
+      setSelectedContactIds([]);
+    } else {
+      setSelectedContactIds(bulkContacts.map(c => c.id));
+    }
+  };
+
+  // ✅ Función de envío simulada (MOCK - sin API real aún)
+  const handleSendBulk = async (): Promise<void> => {
+    if (!selectedCampaign || !messageText || selectedContactIds.length === 0) {
+      setSendResult({ sent: 0, failed: 0, summary: '⚠️ Selecciona campaña, mensaje y al menos un contacto' });
+      return;
+    }
+
+    setSending(true);
+    setSendResult(null);
+
+    // ✅ SIMULACIÓN: Esperar 2 segundos y mostrar resultado mock
+    setTimeout(() => {
+      const mockSent = Math.floor(selectedContactIds.length * 0.9); // 90% éxito simulado
+      const mockFailed = selectedContactIds.length - mockSent;
+      
+      setSendResult({
+        sent: mockSent,
+        failed: mockFailed,
+        summary: `✅ Simulación: ${mockSent} enviados, ${mockFailed} fallidos (API no conectada aún)`
+      });
+      setSending(false);
+      
+      // ✅ Resetear selección después de 3 segundos
+      setTimeout(() => setSelectedContactIds([]), 3000);
+    }, 2000);
+
+    // 🔜 CUANDO TENGAS LA API REAL, reemplaza el setTimeout por:
+    /*
+    try {
+      const response = await fetch('/api/sendBulkMessage', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await user?.getIdToken()}`
+        },
+        body: JSON.stringify({
+          campaignId: selectedCampaign,
+          recipientIds: selectedContactIds,
+          message: messageText,
+          channel: sendChannel
+        })
+      });
+      const result = await response.json();
+      setSendResult({ sent: result.sent, failed: result.failed, summary: result.summary });
+    } catch (err) {
+      setSendResult({ sent: 0, failed: selectedContactIds.length, summary: '❌ Error de conexión' });
+    } finally {
+      setSending(false);
+    }
+    */
+  };
 
 // ✅ Tipo para items de alerta
 type AlertItem = {
@@ -764,72 +975,307 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
       {/* Contenido: Resumen */}
       {activeTab === 'resumen' && stats && (
         <>
-          <Grid container spacing={3} sx={{ mb: 4 }}>
+                    <Grid container spacing={3} sx={{ mb: 4 }}>
+            {/* 1. Total Vehículos - Verde Institucional */}
             <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ bgcolor: 'primary.main', color: 'white' }}>
+              <Card sx={{ 
+                bgcolor: '#1F2335', 
+                border: '1px solid rgba(46, 125, 50, 0.5)',
+                boxShadow: '0 0 15px rgba(46, 125, 50, 0.15)',
+                color: '#FFFFFF',
+                transition: 'all 0.3s ease',
+                '&:hover': { 
+                  transform: 'translateY(-4px)', 
+                  boxShadow: '0 4px 25px rgba(46, 125, 50, 0.4)',
+                  borderColor: '#4CAF50' 
+                }
+              }}>
                 <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    <CarRepair /><Typography variant="h4" fontWeight={700}>{stats.totalVehicles}</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+                    <CarRepair sx={{ color: '#4CAF50', fontSize: 32 }} />
+                    <Typography variant="h4" fontWeight={800} sx={{ letterSpacing: '-1px' }}>{stats.totalVehicles}</Typography>
                   </Box>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Vehículos registrados</Typography>
+                  <Typography variant="body2" sx={{ color: '#9AA5B1', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '1px' }}>Vehículos registrados</Typography>
                 </CardContent>
               </Card>
             </Grid>
+
+            {/* 2. Pagan en Marmato - Azul/Teal (Variación) */}
             <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ bgcolor: stats.vehiclesInMarmato ? 'success.main' : 'grey.400', color: 'white' }}>
+              <Card sx={{ 
+                bgcolor: '#1F2335', 
+                border: '1px solid rgba(0, 150, 136, 0.5)',
+                boxShadow: '0 0 15px rgba(0, 150, 136, 0.15)',
+                color: '#FFFFFF',
+                transition: 'all 0.3s ease',
+                '&:hover': { 
+                  transform: 'translateY(-4px)', 
+                  boxShadow: '0 4px 25px rgba(0, 150, 136, 0.4)',
+                  borderColor: '#00ACC1' 
+                }
+              }}>
                 <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    <CheckCircle /><Typography variant="h4" fontWeight={700}>{stats.vehiclesInMarmato}</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+                    <CheckCircle sx={{ color: '#009688', fontSize: 32 }} />
+                    <Typography variant="h4" fontWeight={800} sx={{ letterSpacing: '-1px' }}>{stats.vehiclesInMarmato}</Typography>
                   </Box>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Pagan en Marmato</Typography>
+                  <Typography variant="body2" sx={{ color: '#9AA5B1', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '1px' }}>Pagan en Marmato</Typography>
                 </CardContent>
               </Card>
             </Grid>
+
+            {/* 3. Vencimientos - Rojo Alerta */}
             <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ bgcolor: stats.upcomingExpirations ? 'warning.main' : 'grey.400', color: 'white' }}>
+              <Card sx={{ 
+                bgcolor: '#1F2335', 
+                border: '1px solid rgba(244, 67, 54, 0.5)',
+                boxShadow: '0 0 15px rgba(244, 67, 54, 0.15)',
+                color: '#FFFFFF',
+                transition: 'all 0.3s ease',
+                '&:hover': { 
+                  transform: 'translateY(-4px)', 
+                  boxShadow: '0 4px 25px rgba(244, 67, 54, 0.4)',
+                  borderColor: '#F44336' 
+                }
+              }}>
                 <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    <Warning /><Typography variant="h4" fontWeight={700}>{stats.upcomingExpirations}</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+                    <Warning sx={{ color: '#F44336', fontSize: 32 }} />
+                    <Typography variant="h4" fontWeight={800} sx={{ letterSpacing: '-1px' }}>{stats.upcomingExpirations}</Typography>
                   </Box>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Vencimientos próximos</Typography>
+                  <Typography variant="body2" sx={{ color: '#9AA5B1', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '1px' }}>Vencimientos próximos</Typography>
                 </CardContent>
               </Card>
             </Grid>
+
+            {/* 4. Campañas - Dorado (Acento Marmato) */}
             <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ bgcolor: 'secondary.main', color: 'white' }}>
+              <Card sx={{ 
+                bgcolor: '#1F2335', 
+                border: '1px solid rgba(244, 196, 48, 0.5)',
+                boxShadow: '0 0 15px rgba(244, 196, 48, 0.15)',
+                color: '#FFFFFF',
+                transition: 'all 0.3s ease',
+                '&:hover': { 
+                  transform: 'translateY(-4px)', 
+                  boxShadow: '0 4px 25px rgba(244, 196, 48, 0.4)',
+                  borderColor: '#F4C430' 
+                }
+              }}>
                 <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    <TrendingUp /><Typography variant="h4" fontWeight={700}>{stats.activeCampaigns}</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+                    <TrendingUp sx={{ color: '#F4C430', fontSize: 32 }} />
+                    <Typography variant="h4" fontWeight={800} sx={{ letterSpacing: '-1px' }}>{stats.activeCampaigns}</Typography>
                   </Box>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Campañas activas</Typography>
+                  <Typography variant="body2" sx={{ color: '#9AA5B1', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '1px' }}>Campañas activas</Typography>
                 </CardContent>
               </Card>
             </Grid>
           </Grid>
-          <Grid container spacing={3}>
+                    <Grid container spacing={3}>
+            {/* 📊 Gráfica de Barras: Vehículos por departamento (Futurista) */}
             <Grid item xs={12} md={6}>
-              <Card><CardContent>
-                <Typography variant="h6" gutterBottom>Vehículos por departamento</Typography>
-                <Box sx={{ height: 300, minHeight: 300, width: '100%', minWidth: 0 }}>
-                  <ResponsiveContainer width="100%" height="100%" minHeight={300}>
-                    <BarChart data={stats.byDepartment}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" angle={-45} textAnchor="end" height={80} fontSize={12} /><YAxis /><Tooltip /><Bar dataKey="value" fill="#1a365d" radius={[4, 4, 0, 0]} /></BarChart>
-                  </ResponsiveContainer>
-                </Box>
-              </CardContent></Card>
+              <Card sx={{ 
+                bgcolor: '#1F2335',
+                border: '1px solid rgba(46, 125, 50, 0.3)',
+                boxShadow: '0 0 20px rgba(46, 125, 50, 0.1)',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  boxShadow: '0 0 35px rgba(46, 125, 50, 0.25)',
+                  transform: 'translateY(-2px)',
+                }
+              }}>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom sx={{ color: '#E0E6ED', fontWeight: 700 }}>
+                    Vehículos por departamento
+                  </Typography>
+                  <Box sx={{ height: 300, minHeight: 300, width: '100%', minWidth: 0 }}>
+                    <ResponsiveContainer width="100%" height="100%" minHeight={300}>
+                      <BarChart data={stats.byDepartment} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                        {/* ✨ Degradado neón verde → cian */}
+                        <defs>
+                          <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#2E7D32" stopOpacity={0.9}/>
+                            <stop offset="95%" stopColor="#00C853" stopOpacity={0.4}/>
+                          </linearGradient>
+                          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                            <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                            <feMerge>
+                              <feMergeNode in="coloredBlur"/>
+                              <feMergeNode in="SourceGraphic"/>
+                            </feMerge>
+                          </filter>
+                        </defs>
+                        <CartesianGrid strokeDasharray="4 4" stroke="#3B4252" vertical={false} />
+                        <XAxis 
+                          dataKey="name" 
+                          angle={-45} 
+                          textAnchor="end" 
+                          height={80} 
+                          fontSize={11}
+                          stroke="#9AA5B1"
+                          tick={{ fill: '#9AA5B1' }}
+                        />
+                        <YAxis 
+                          stroke="#9AA5B1"
+                          tick={{ fill: '#9AA5B1', fontSize: 11 }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        {/* 🌫️ Tooltip con efecto vidrio */}
+                        <Tooltip 
+                          contentStyle={{ 
+                            backgroundColor: 'rgba(26, 27, 38, 0.95)',
+                            backdropFilter: 'blur(8px)',
+                            WebkitBackdropFilter: 'blur(8px)',
+                            border: '1px solid rgba(46, 125, 50, 0.4)',
+                            borderRadius: 10,
+                            color: '#E0E6ED',
+                            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+                          }}
+                          labelStyle={{ color: '#FFFFFF', fontWeight: 600, marginBottom: 4 }}
+                          cursor={{ fill: 'rgba(46, 125, 50, 0.1)', radius: 4 }}
+                        />
+                        <Bar 
+                          dataKey="value" 
+                          fill="url(#barGradient)"
+                          radius={[6, 6, 0, 0]}
+                          animationDuration={800}
+                          animationBegin={200}
+                          isAnimationActive={true}
+                          animationEasing="ease-out"
+                          // ✨ Efecto hover: elevación + glow
+                          onMouseOver={(data, index) => {
+                            const bars = document.querySelectorAll('.recharts-bar-rectangle');
+                            if (bars[index]) {
+                              (bars[index] as SVGElement).style.filter = 'url(#glow)';
+                              (bars[index] as SVGElement).style.transition = 'filter 0.2s ease';
+                            }
+                          }}
+                          onMouseOut={(data, index) => {
+                            const bars = document.querySelectorAll('.recharts-bar-rectangle');
+                            if (bars[index]) {
+                              (bars[index] as SVGElement).style.filter = 'none';
+                            }
+                          }}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </Box>
+                </CardContent>
+              </Card>
             </Grid>
+
+            {/* 🥧 Gráfica Pastel: Estado de documentos (Interactiva) */}
             <Grid item xs={12} md={6}>
-              <Card><CardContent>
-                <Typography variant="h6" gutterBottom>Estado de documentos</Typography>
-                <Box sx={{ height: 300 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart><Pie data={stats.byStatus} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={2} dataKey="value" label={(props) => { const safeName = props.name ?? 'Sin nombre'; const safePercent = props.percent ?? 0; return `${safeName} ${(safePercent * 100).toFixed(0)}%`; }}>{stats.byStatus.map((entry, index: number) => <Cell key={`cell-${index}`} fill={entry.color} />)}</Pie><Tooltip /></PieChart>
-                  </ResponsiveContainer>
-                </Box>
-              </CardContent></Card>
+              <Card sx={{ 
+                bgcolor: '#1F2335',
+                border: '1px solid rgba(244, 196, 48, 0.3)',
+                boxShadow: '0 0 20px rgba(244, 196, 48, 0.1)',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  boxShadow: '0 0 35px rgba(244, 196, 48, 0.25)',
+                  transform: 'translateY(-2px)',
+                }
+              }}>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom sx={{ color: '#E0E6ED', fontWeight: 700 }}>
+                    Estado de documentos
+                  </Typography>
+                  <Box sx={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        {/* ✨ Degradados para cada estado */}
+                        <defs>
+                          <linearGradient id="vigenteGradient" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="5%" stopColor="#2E7D32" stopOpacity={1}/>
+                            <stop offset="95%" stopColor="#4CAF50" stopOpacity={0.7}/>
+                          </linearGradient>
+                          <linearGradient id="proximoGradient" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="5%" stopColor="#F4C430" stopOpacity={1}/>
+                            <stop offset="95%" stopColor="#FFD54F" stopOpacity={0.7}/>
+                          </linearGradient>
+                          <linearGradient id="vencidoGradient" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="5%" stopColor="#F44336" stopOpacity={1}/>
+                            <stop offset="95%" stopColor="#EF5350" stopOpacity={0.7}/>
+                          </linearGradient>
+                        </defs>
+                        <Pie
+                          data={stats.byStatus}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={55}
+                          outerRadius={90}
+                          paddingAngle={3}
+                          dataKey="value"
+                          nameKey="name"
+                          animationDuration={1000}
+                          animationBegin={300}
+                          isAnimationActive={true}
+                          animationEasing="ease-out"
+                          // ✨ Efecto hover: expandir segmento activo
+                          onMouseOver={(data, index) => {
+                            const sectors = document.querySelectorAll('.recharts-pie-sector');
+                            if (sectors[index]) {
+                              (sectors[index] as SVGElement).style.transform = 'scale(1.05)';
+                              (sectors[index] as SVGElement).style.transition = 'transform 0.2s ease';
+                              (sectors[index] as SVGElement).style.filter = 'drop-shadow(0 0 8px rgba(255,255,255,0.3))';
+                            }
+                          }}
+                          onMouseOut={(data, index) => {
+                            const sectors = document.querySelectorAll('.recharts-pie-sector');
+                            if (sectors[index]) {
+                              (sectors[index] as SVGElement).style.transform = 'scale(1)';
+                              (sectors[index] as SVGElement).style.filter = 'none';
+                            }
+                          }}
+                        >
+                          {stats.byStatus.map((entry, index) => (
+                            <Cell 
+                              key={`cell-${index}`} 
+                              fill={`url(#${entry.name === 'Vigente' ? 'vigenteGradient' : entry.name === 'Próximo' ? 'proximoGradient' : 'vencidoGradient'})`}
+                              stroke="rgba(26, 27, 38, 0.8)"
+                              strokeWidth={2}
+                            />
+                          ))}
+                        </Pie>
+                        {/* 🎯 Centro dinámico: muestra el total */}
+                        <text 
+                          x="50%" 
+                          y="50%" 
+                          textAnchor="middle" 
+                          dominantBaseline="middle"
+                          fill="#E0E6ED"
+                          fontSize={18}
+                          fontWeight={700}
+                        >
+                          {stats.byStatus.reduce((acc, cur) => acc + cur.value, 0)}
+                          <tspan x="50%" dy={20} fontSize={11} fill="#9AA5B1" fontWeight={400}>
+                            Total docs
+                          </tspan>
+                        </text>
+                        {/* 🌫️ Tooltip vidrio */}
+                        <Tooltip 
+                          contentStyle={{ 
+                            backgroundColor: 'rgba(26, 27, 38, 0.95)',
+                            backdropFilter: 'blur(8px)',
+                            WebkitBackdropFilter: 'blur(8px)',
+                            border: '1px solid rgba(244, 196, 48, 0.4)',
+                            borderRadius: 10,
+                            color: '#E0E6ED',
+                            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+                          }}
+                          labelStyle={{ color: '#FFFFFF', fontWeight: 600 }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </Box>
+                </CardContent>
+              </Card>
             </Grid>
           </Grid>
-        </>
-      )}
+        </>  
+      )}  
 
       {/* Contenido: Vehículos */}
       {activeTab === 'vehiculos' && (
@@ -935,7 +1381,7 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
                     <TextField placeholder="Buscar por placa o conductor..." value={searchTerm} onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)} InputProps={{ startAdornment: <><CarRepair sx={{ mr: 1, color: 'action.active' }} /></> }} sx={{ flex: 1, minWidth: 200 }} size="small" />
                     <TextField select value={filterDept} onChange={(e: ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => setFilterDept(e.target.value)} label="Departamento" SelectProps={{ native: true }} sx={{ minWidth: 180 }} size="small">
                       <option value="">Todos</option>
-                      {uniqueDepts.map(dept => <option key={dept} value={dept}>{dept}</option>)}
+                      {uniqueDepts.map((dept, idx) => <option key={`${dept}-${idx}`} value={dept}>{dept}</option>)}
                     </TextField>
                   </Box>
                 </CardContent>
@@ -947,37 +1393,79 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
                   {vehiclesLoading ? (
                     <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><LinearProgress sx={{ width: '100%', maxWidth: 400 }} /></Box>
                   ) : (
-                    <Box sx={{ overflowX: 'auto' }}>
-                      <TableChart sx={{ minWidth: 650 }} />
+                                        <Box sx={{ 
+                      overflowX: 'auto',
+                      '& tr:hover td': { 
+                        bgcolor: 'rgba(46, 125, 50, 0.12)',
+                        transition: 'background 0.2s ease',
+                        cursor: 'pointer'
+                      },
+                      '& th': { 
+                        bgcolor: '#1F2335', 
+                        color: '#E0E6ED', 
+                        borderBottom: '2px solid #3B4252',
+                        fontSize: '0.8rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        fontWeight: 700,
+                        padding: '14px 12px'
+                      },
+                      '& td': { 
+                        color: '#C9D1D9',
+                        borderBottom: '1px solid #2D3348',
+                        padding: '14px 12px'
+                      },
+                      '& td:first-of-type': { 
+                        fontWeight: 600, 
+                        color: '#F4C430',
+                        fontFamily: 'monospace'
+                      }
+                    }}>
+                      <TableChart sx={{ minWidth: 650, color: '#E0E6ED', mb: 2 }} />
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
-                          <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
-                            <th style={{ textAlign: 'left', padding: '12px', fontWeight: 600 }}>Placa</th>
-                            <th style={{ textAlign: 'left', padding: '12px', fontWeight: 600 }}>Conductor</th>
-                            <th style={{ textAlign: 'left', padding: '12px', fontWeight: 600 }}>Departamento</th>
-                            <th style={{ textAlign: 'left', padding: '12px', fontWeight: 600 }}>Estado</th>
-                            <th style={{ textAlign: 'left', padding: '12px', fontWeight: 600 }}>Documentos</th>
-                            <th style={{ textAlign: 'left', padding: '12px', fontWeight: 600 }}>Acciones</th>
+                          <tr>
+                            <th style={{ textAlign: 'left' }}>Placa</th>
+                            <th style={{ textAlign: 'left' }}>Conductor</th>
+                            <th style={{ textAlign: 'left' }}>Departamento</th>
+                            <th style={{ textAlign: 'left' }}>Estado</th>
+                            <th style={{ textAlign: 'left' }}>Documentos</th>
+                            <th style={{ textAlign: 'left' }}>Acciones</th>
                           </tr>
                         </thead>
                         <tbody>
                           {filteredVehicles.map(v => {
                             const status = getStatus(v);
-
-
                             return (
-                              <tr key={v.id || v.placa} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                                <td style={{ padding: '12px', fontFamily: 'monospace', fontWeight: 500 }}>{v.placa}</td>
-                                <td style={{ padding: '12px' }}>{v.conductor}</td>
-                                <td style={{ padding: '12px' }}>{v.departamento}</td>
-                                <td style={{ padding: '12px' }}><span style={{ padding: '4px 12px', borderRadius: '12px', fontSize: '12px', backgroundColor: status.color === 'success' ? '#dcfce7' : status.color === 'warning' ? '#fef3c7' : '#fee2e2', color: status.color === 'success' ? '#166534' : status.color === 'warning' ? '#92400e' : '#991b1b' }}>{status.label}</span></td>
-                                <td style={{ padding: '12px', color: '#666' }}>{v.documentos?.length || 0} doc(s)</td>
-                                <td style={{ padding: '12px' }}><Box sx={{ display: 'flex', gap: 0.5 }}><IconButton size="small" onClick={() => handleEditVehicle(v)} aria-label="Editar"><Edit fontSize="small" /></IconButton><IconButton size="small" onClick={() => handleDeleteVehicle(v.id!, v.placa)} aria-label="Eliminar" color="error"><Delete fontSize="small" /></IconButton></Box></td>
+                              <tr key={v.id || v.placa}>
+                                <td>{v.placa}</td>
+                                <td>{v.conductor}</td>
+                                <td style={{ color: '#9AA5B1' }}>{v.departamento}</td>
+                                <td>
+                                  <span style={{ 
+                                    padding: '4px 10px', 
+                                    borderRadius: '6px', 
+                                    fontSize: '0.75rem', 
+                                    fontWeight: 600,
+                                    backgroundColor: status.color === 'success' ? 'rgba(46, 125, 50, 0.2)' : 
+                                                     status.color === 'warning' ? 'rgba(244, 196, 48, 0.2)' : 'rgba(244, 67, 54, 0.2)', 
+                                    color: status.color === 'success' ? '#4CAF50' : status.color === 'warning' ? '#F4C430' : '#F44336' 
+                                  }}>
+                                    {status.label}
+                                  </span>
+                                </td>
+                                <td style={{ color: '#9AA5B1' }}>{v.documentos?.length || 0} doc(s)</td>
+                                <td>
+                                  <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                    <IconButton size="small" onClick={() => handleEditVehicle(v)} aria-label="Editar" sx={{ color: '#9AA5B1', '&:hover': { color: '#2E7D32', bgcolor: 'rgba(46, 125, 50, 0.1)' } }}><Edit fontSize="small" /></IconButton>
+                                    <IconButton size="small" onClick={() => handleDeleteVehicle(v.id!, v.placa)} aria-label="Eliminar" sx={{ color: '#9AA5B1', '&:hover': { color: '#F44336', bgcolor: 'rgba(244, 67, 54, 0.1)' } }}><Delete fontSize="small" /></IconButton>
+                                  </Box>
+                                </td>
                               </tr>
                             );
                           })}
                           {filteredVehicles.length === 0 && (
-                            <tr><td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: '#666' }}>No se encontraron vehículos</td></tr>
+                            <tr><td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: '#666' }}>No se encontraron vehículos</td></tr>
                           )}
                         </tbody>
                       </table>
@@ -1198,7 +1686,7 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
                 <TextField label="Fecha fin" name="endDate" type="date" value={reportFilters.endDate} onChange={handleReportChange} InputLabelProps={{ shrink: true }} size="small" />
                 <TextField select label="Departamento" name="dept" value={reportFilters.dept} onChange={handleReportChange} SelectProps={{ native: true }} size="small" sx={{ minWidth: 180 }}>
                   <option value="">Todos</option>
-                  {uniqueDepts.map(d => <option key={d} value={d}>{d}</option>)}
+                  {uniqueDepts.map((d, idx) => <option key={`${d}-${idx}`} value={d}>{d}</option>)}
                 </TextField>
               </Box>
             </CardContent>
@@ -1248,7 +1736,7 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
         </Box>
       )}
 
-          {/* ✅ TAB BRIGADISTAS */}
+                {/* ✅ TAB BRIGADISTAS */}
       {activeTab === 'brigadistas' && (
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
@@ -1264,20 +1752,20 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
             <Card sx={{ border: '1px solid', borderColor: 'primary.light', mb: 3 }}><CardContent>
               <form onSubmit={handleCreateBrigadista}><Grid container spacing={2}>
                 <Grid item xs={12} sm={6}><TextField fullWidth required label="Email" name="email" type="email" value={brigForm.email} onChange={handleBrigChange} disabled={brigLoading} /></Grid>
-                <Grid item xs={12} sm={6}><TextField fullWidth required label="Contraseña" name="password" type="password" value={brigForm.password} onChange={handleBrigChange} disabled={brigLoading} /></Grid>
+                <Grid item xs={12} sm={6}><TextField fullWidth required label="Contraseña" name="password" type="password" value={brigForm.password} onChange={handleBrigChange} disabled={brigLoading || !!editingBrigId} helperText={editingBrigId ? "Dejar vacío para mantener" : ""} /></Grid>
                 <Grid item xs={12} sm={6}><TextField fullWidth required label="Nombre completo" name="displayName" value={brigForm.displayName} onChange={handleBrigChange} disabled={brigLoading} /></Grid>
                 <Grid item xs={12} sm={6}><TextField select fullWidth label="Departamento" name="municipio" value={brigForm.municipio} onChange={handleBrigChange} SelectProps={{ native: true }} disabled={brigLoading}>
                   <option value="">Seleccionar...</option>
                   {COLOMBIA_DEPARTAMENTOS.map(m => <option key={m} value={m}>{m}</option>)}
                 </TextField></Grid>
                 <Grid item xs={12} sm={6}><TextField fullWidth label="Teléfono" name="telefono" value={brigForm.telefono} onChange={handleBrigChange} disabled={brigLoading} /></Grid>
-              </Grid><Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 2 }}><Button variant="outlined" onClick={() => setShowBrigForm(false)} disabled={brigLoading}>Cancelar</Button><Button type="submit" variant="contained" disabled={brigLoading}>{brigLoading ? 'Creando...' : 'Crear Brigadista'}</Button></Box></form>
+              </Grid><Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 2 }}><Button variant="outlined" onClick={handleCancelBrigForm} disabled={brigLoading}>Cancelar</Button><Button type="submit" variant="contained" disabled={brigLoading}>{brigLoading ? 'Procesando...' : (editingBrigId ? 'Actualizar' : 'Crear Brigadista')}</Button></Box></form>
             </CardContent></Card>
           ) : (
             <Card><CardContent>
               {brigadistas.length === 0 ? <Typography color="text.secondary" align="center">No hay brigadistas registrados</Typography> : (
                 <Box sx={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead><tr style={{ borderBottom: '2px solid #e0e0e0' }}><th style={{ padding: '12px', textAlign: 'left' }}>Nombre</th><th style={{ padding: '12px', textAlign: 'left' }}>Email</th><th style={{ padding: '12px', textAlign: 'left' }}>Municipio</th><th style={{ padding: '12px', textAlign: 'left' }}>Teléfono</th><th style={{ padding: '12px', textAlign: 'left' }}>Creado</th></tr></thead>
+                  <thead><tr style={{ borderBottom: '2px solid #e0e0e0' }}><th style={{ padding: '12px', textAlign: 'left' }}>Nombre</th><th style={{ padding: '12px', textAlign: 'left' }}>Email</th><th style={{ padding: '12px', textAlign: 'left' }}>Municipio</th><th style={{ padding: '12px', textAlign: 'left' }}>Teléfono</th><th style={{ padding: '12px', textAlign: 'left' }}>Creado</th><th style={{ padding: '12px', textAlign: 'left' }}>Acciones</th></tr></thead>
                   <tbody>
                     {brigadistas.map(b => (
                       <tr key={b.uid} style={{ borderBottom: '1px solid #f0f0f0' }}>
@@ -1285,7 +1773,13 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
                         <td style={{ padding: '12px' }}>{b.email}</td>
                         <td style={{ padding: '12px' }}>{b.municipio || '-'}</td>
                         <td style={{ padding: '12px' }}>{b.telefono || '-'}</td>
-                        <td style={{ padding: '12px' }}>{b.createdAt ? new Date(b.createdAt instanceof Date ? b.createdAt : b.createdAt.toDate()).toLocaleDateString('es-CO') : '-'}</td>
+                        <td style={{ padding: '12px' }}>{b.createdAt ? new Date(b.createdAt instanceof Date ? b.createdAt : (b.createdAt as Timestamp).toDate()).toLocaleDateString('es-CO') : '-'}</td>
+                        <td style={{ padding: '12px' }}>
+                          <Box sx={{ display: 'flex', gap: 0.5 }}>
+                            <IconButton size="small" onClick={() => handleEditBrigadista(b)} aria-label="Editar"><Edit fontSize="small" /></IconButton>
+                            <IconButton size="small" onClick={() => handleDeleteBrigadista(b.uid, b.displayName)} aria-label="Desactivar" color="error"><Delete fontSize="small" /></IconButton>
+                          </Box>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1295,6 +1789,143 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
           )}
         </Box>
       )}
+
+
+
+
+              {/* ✅ TAB MENSAJERÍA MASIVA */}
+      {activeTab === 'mensajeria' && (
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6" fontWeight={600}>💬 Mensajería Masiva</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Envía mensajes a contactos de campañas (Simulación - API pendiente)
+            </Typography>
+          </Box>
+
+          {/* Selector de campaña */}
+          <Card sx={{ mb: 3, p: 2 }}>
+            <Grid container spacing={2} alignItems="center">
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Campaña</InputLabel>
+                  <Select
+                    value={selectedCampaign}
+                    label="Campaña"
+                    onChange={(e: SelectChangeEvent) => setSelectedCampaign(e.target.value)}
+                  >
+                    <MenuItem value=""><em>Seleccionar campaña...</em></MenuItem>
+                    {bulkCampaigns.map(c => (
+                      <MenuItem key={c.id} value={c.id!}>{c.name}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Canal</InputLabel>
+                  <Select
+                    value={sendChannel}
+                    label="Canal"
+                    onChange={(e: SelectChangeEvent<'whatsapp' | 'sms'>) => setSendChannel(e.target.value as 'whatsapp' | 'sms')}
+                  >
+                    <MenuItem value="whatsapp">📱 WhatsApp (Meta API)</MenuItem>
+                    <MenuItem value="sms">💬 SMS (Twilio)</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+            </Grid>
+          </Card>
+
+          {/* Área de mensaje */}
+          {selectedCampaign && (
+            <Card sx={{ mb: 3, p: 2 }}>
+              <TextField
+                fullWidth
+                multiline
+                rows={4}
+                label="Mensaje"
+                placeholder="Escribe el mensaje que se enviará a los contactos seleccionados..."
+                value={messageText}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setMessageText(e.target.value)}
+                helperText={`${messageText.length}/500 caracteres`}
+                inputProps={{ maxLength: 500 }}
+              />
+            </Card>
+          )}
+
+          {/* Lista de contactos con selección */}
+          {selectedCampaign && bulkContacts.length > 0 && (
+            <Card sx={{ mb: 3 }}>
+              <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e0e0e0' }}>
+                <Typography fontWeight={600}>
+                  Contactos ({bulkContacts.length}) • Seleccionados: {selectedContactIds.length}
+                </Typography>
+                <Button size="small" variant="outlined" onClick={toggleSelectAll}>
+                  {selectedContactIds.length === bulkContacts.length ? 'Deseleccionar todos' : 'Seleccionar todos'}
+                </Button>
+              </Box>
+              <Box sx={{ maxHeight: 300, overflow: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #e0e0e0', position: 'sticky', top: 0, backgroundColor: '#fff' }}>
+                      <th style={{ padding: '10px', textAlign: 'left', width: 40 }}>✓</th>
+                      <th style={{ padding: '10px', textAlign: 'left' }}>Nombre</th>
+                      <th style={{ padding: '10px', textAlign: 'left' }}>Teléfono</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bulkContacts.map(c => (
+                      <tr key={c.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                        <td style={{ padding: '10px' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedContactIds.includes(c.id)}
+                            onChange={() => toggleContactSelection(c.id)}
+                          />
+                        </td>
+                        <td style={{ padding: '10px' }}>{c.nombre}</td>
+                        <td style={{ padding: '10px', fontFamily: 'monospace' }}>{c.telefono}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Box>
+            </Card>
+          )}
+
+          {/* Resultado y botón de envío */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {sendResult && (
+              <Alert severity={sendResult.failed === 0 ? 'success' : 'warning'}>
+                {sendResult.summary}
+              </Alert>
+            )}
+            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+              <Button 
+                variant="contained" 
+                color="primary"
+                onClick={handleSendBulk}
+                disabled={sending || !selectedCampaign || !messageText || selectedContactIds.length === 0}
+                startIcon={sending ? <CircularProgress size={20} color="inherit" /> : null}
+              >
+                {sending ? 'Enviando...' : `Enviar a ${selectedContactIds.length} contacto(s)`}
+              </Button>
+            </Box>
+          </Box>
+
+          {/* Nota informativa */}
+          <Box sx={{ mt: 3, p: 2, bgcolor: 'info.50', borderRadius: 1, border: '1px dashed', borderColor: 'info.main' }}>
+            <Typography variant="body2" color="info.main">
+              ℹ️ <strong>Modo simulación:</strong> Esta interfaz está lista para conectar tu API de mensajería. 
+              Cuando configures las credenciales de Meta WhatsApp o Twilio, reemplaza la función `handleSendBulk` 
+              con la llamada real a tu endpoint. Los contactos se filtran por campaña desde Firestore.
+            </Typography>
+          </Box>
+        </Box>
+      )}
+
+
 
 
     </Box>
