@@ -1,8 +1,7 @@
 // src/app/api/whatsapp-webhook/route.ts
 // ✅ Webhook oficial para RECIBIR mensajes y estados de entrega de Meta WhatsApp
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db, serverTimestamp } from '@/lib/firebase-admin';
 
 // ✅ Token de verificación (debe coincidir con el que pondrás en Meta)
 const WEBHOOK_VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'marmato-verify-token-2026';
@@ -81,7 +80,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
         // Solo procesamos mensajes de texto (por ahora)
         if (msg.type === 'text' && msg.text?.body) {
-          await addDoc(collection(db, 'whatsapp_messages'), {
+          await db.collection('whatsapp_messages').add({
             from: fromNumber,
             fromName,
             to: value.metadata.display_phone_number,
@@ -100,7 +99,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // 2️⃣ Si viene un ESTADO DE ENTREGA (sent, delivered, read, failed)
       if (value.statuses && value.statuses.length > 0) {
         const status = value.statuses[0];
-        await addDoc(collection(db, 'whatsapp_messages'), {
+        await db.collection('whatsapp_messages').add({
           metaMessageId: status.id,
           direction: 'outbound',
           status: status.status,

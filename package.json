@@ -22,7 +22,7 @@
     "axios": "^1.16.0",
     "date-fns": "^4.1.0",
     "firebase": "^12.11.0",
-    "firebase-admin": "^13.9.0",
+    "firebase-admin": "^13.10.0",
     "framer-motion": "^12.38.0",
     "idb": "^8.0.3",
     "next": "16.2.2",
