@@ -118,52 +118,48 @@ export default function CharacterizationPage() {
     router.refresh();
   };
 
-    // ✅ Enviar mensaje de consentimiento legal vía WhatsApp nativo
-  const sendLegalConsentWhatsApp = (phone: string, ownerName: string, campaignId: string): void => {
-    // 1. Formatear número para Colombia (agregar 57 si no está)
-    const cleanPhone = phone.replace(/\D/g, '');
-    const formattedPhone = cleanPhone.startsWith('57') ? cleanPhone : `57${cleanPhone}`;
-    
-    // 2. Obtener fecha y hora del registro
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const timeStr = now.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
-    
-    // 3. Construir mensaje legal exacto
-    const message = `Hola ${ownerName}, recibe este mensaje de tratamiento de datos personales (Ley 1581 de 2012).
+    // ✅ ENVÍO DE WHATSAPP CON API OFICIAL (Meta) - Plantilla aprobada
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const sendLegalConsentWhatsApp = async (telefono: string, nombre: string, _campaignId: string): Promise<void> => {
+  try {
+    // Limpiar número: solo dígitos, con código de país
+    const phoneDigits = telefono.replace(/\D/g, '');
+    const to = phoneDigits.startsWith('57') ? phoneDigits : `57${phoneDigits}`;
 
-🔗 Norma oficial: https://www.sic.gov.co/proteccion-datos-personales
+    // Llamar a nuestra API route local con la plantilla aprobada
+    const response = await fetch('/api/send-whatsapp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to,
+        template: {
+          name: 'marmato_consentimiento_datos', // ← Nombre EXACTO de tu plantilla aprobada en Meta
+          language: { code: 'es' },
+          components: [
+            {
+              type: 'body',
+              parameters: [
+                { type: 'text', text: nombre }, // {{1}}: Nombre del propietario/conductor
+                { type: 'text', text: 'https://www.mintic.gov.co/portal/715/articles-2627_Resolucion_2238_de_2024.pdf' }, // {{2}}: Enlace a política
+              ],
+            },
+          ],
+        },
+      }),
+    });
 
-📋 Registro:
-• Campaña: ${campaignId}
-• Fecha: ${dateStr}
-• Hora: ${timeStr}
-
-La Alcaldía de Marmato utilizará esta información únicamente para fines institucionales. Gracias por participar.
-
-⚠️ FINALIZAR: No responda este mensaje. Este número es solo para envío de tratamiento de datos personales. No se reciben respuestas ni solicitudes a este número. Para cualquier consulta, comuníquese al WhatsApp institucional de la Alcaldía de Marmato: https://wa.me/573106524453`;
-
-    // 4. Codificar para URL
-    const encodedMessage = encodeURIComponent(message);
-    
-    // 5. Intentar abrir WhatsApp NATIVO primero, fallback a web
-    const nativeUrl = `whatsapp://send?phone=${formattedPhone}&text=${encodedMessage}`;
-    const webUrl = `https://wa.me/${formattedPhone}?text=${encodedMessage}`;
-    
-    // Detectar si es móvil para priorizar nativo
-    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    
-    if (isMobile) {
-      // Intentar nativo, si falla abrir web
-      const fallback = setTimeout(() => { window.location.href = webUrl; }, 1500);
-      window.location.href = nativeUrl;
-      // Limpiar fallback si nativo funciona
-      window.addEventListener('blur', () => clearTimeout(fallback), { once: true });
-    } else {
-      // En desktop, abrir web directamente
-      window.open(webUrl, '_blank');
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      console.warn('⚠️ WhatsApp no enviado:', result.error);
+      // No interrumpimos el flujo: el registro en Firestore ya fue exitoso
     }
-  };
+  } catch (err: unknown) {
+    // ✅ Type guard seguro (sin 'any', cumple ESLint)
+    const msg = err instanceof Error ? err.message : 'Error de red';
+    console.warn('⚠️ Error enviando WhatsApp:', msg);
+    // No interrumpimos el flujo principal
+  }
+};
 
   // ✅ Validación básica
   const validateForm = (): boolean => {
@@ -266,9 +262,12 @@ La Alcaldía de Marmato utilizará esta información únicamente para fines inst
     // ✅ Pantalla de carga inicial
   if (authLoading || loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', bgcolor: '#f8fafc' }}>
-        <LinearProgress sx={{ width: '100%', maxWidth: 400 }} />
-      </Box>
+      <Box 
+  sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', bgcolor: '#f8fafc' }}
+  suppressHydrationWarning={true}
+>
+  <LinearProgress sx={{ width: '100%', maxWidth: 400 }} />
+</Box>
     );
   }
 

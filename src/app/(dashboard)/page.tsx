@@ -41,6 +41,7 @@ interface VehicleData {
   conductor: string;
   departamento: string;
   municipio?: string;
+  telefono?: string;
   transito?: string;  // ✅ AGREGAR ESTA LÍNEA
   documentos?: VehicleDoc[];
   isActive?: boolean;
@@ -59,7 +60,8 @@ interface NewVehicleForm {
   placa: string;
   conductor: string;
   departamento: string;
-  municipio: string;  // ✅ Nuevo campo: ciudad/municipio libre
+  municipio: string; 
+  telefono?: string;
   soatExpiry?: string;
   tecnoExpiry?: string;
 }
@@ -99,6 +101,7 @@ export default function DashboardPage() {
   conductor: '',
   departamento: '',
   municipio: '',  // ✅ Inicializar campo nuevo
+  telefono: '',
   soatExpiry: '',
   tecnoExpiry: ''
 });
@@ -266,6 +269,7 @@ const handleSelectChange = (event: SelectChangeEvent<string>): void => {
   conductor: formData.conductor.trim(),
   departamento: formData.departamento,
   municipio: formData.municipio.trim(),  // ✅ Agregar municipio
+  telefono: formData.telefono?.trim() || undefined,
   documentos: [] as VehicleDoc[],
   isActive: true,
   createdAt: new Date(),
@@ -294,6 +298,53 @@ const handleSelectChange = (event: SelectChangeEvent<string>): void => {
         setVehicles(prev => [...prev, { ...newVehicle, id: docRef.id }]);
       }
 
+
+            // ✅ ENVÍO AUTOMÁTICO DE WHATSAPP: Plantilla de consentimiento de datos
+      // Se dispara inmediatamente después de registrar el vehículo
+      const sendConsentWhatsApp = async (conductorNombre: string, conductorTelefono: string): Promise<void> => {
+        try {
+          // Limpiar número: solo dígitos, con código de país
+          const phoneDigits = conductorTelefono.replace(/\D/g, '');
+          const to = phoneDigits.startsWith('57') ? phoneDigits : `57${phoneDigits}`;
+
+          // Llamar a nuestra API route con la plantilla aprobada
+          const response = await fetch('/api/send-whatsapp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              to,
+              template: {
+                name: 'marmato_consentimiento_datos', // ← Nombre EXACTO de tu plantilla aprobada
+                language: { code: 'es' },
+                components: [
+                  {
+                    type: 'body',
+                    parameters: [
+                      { type: 'text', text: conductorNombre }, // {{1}}: Nombre del conductor
+                      { type: 'text', text: 'https://www.mintic.gov.co/portal/715/articles-2627_Resolucion_2238_de_2024.pdf' }, // {{2}}: Enlace a política
+                    ],
+                  },
+                ],
+              },
+            }),
+          });
+
+          const result = await response.json();
+          if (!response.ok || !result.success) {
+            console.warn('⚠️ WhatsApp no enviado:', result.error);
+            // No interrumpimos el flujo: el registro en Firestore ya fue exitoso
+          }
+        } catch (err: unknown) {
+          // ✅ Type guard seguro (sin 'any')
+          const msg = err instanceof Error ? err.message : 'Error de red';
+          console.warn('⚠️ Error enviando WhatsApp:', msg);
+          // No interrumpimos el flujo principal
+        }
+      };
+
+      // Disparar envío (sin await para no bloquear la UI)
+      void sendConsentWhatsApp(newVehicle.conductor, newVehicle.telefono || '');
+
       // ✅ Feedback y reset
       setFormSuccess('Vehículo registrado exitosamente');
       setFormData({ 
@@ -301,6 +352,7 @@ const handleSelectChange = (event: SelectChangeEvent<string>): void => {
   conductor: '', 
   departamento: '', 
   municipio: '',  // ✅ Resetear nuevo campo
+  telefono: '',
   soatExpiry: '', 
   tecnoExpiry: '' 
 });
@@ -334,6 +386,7 @@ const handleSelectChange = (event: SelectChangeEvent<string>): void => {
   conductor: '', 
   departamento: '', 
   municipio: '',  // ✅ Resetear nuevo campo
+  telefono: '',
   soatExpiry: '', 
   tecnoExpiry: '' 
 });
@@ -645,47 +698,59 @@ const handleSelectChange = (event: SelectChangeEvent<string>): void => {
     setSending(true);
     setSendResult(null);
 
-    // ✅ SIMULACIÓN: Esperar 2 segundos y mostrar resultado mock
-    setTimeout(() => {
-      const mockSent = Math.floor(selectedContactIds.length * 0.9); // 90% éxito simulado
-      const mockFailed = selectedContactIds.length - mockSent;
-      
-      setSendResult({
-        sent: mockSent,
-        failed: mockFailed,
-        summary: `✅ Simulación: ${mockSent} enviados, ${mockFailed} fallidos (API no conectada aún)`
-      });
-      setSending(false);
-      
-      // ✅ Resetear selección después de 3 segundos
-      setTimeout(() => setSelectedContactIds([]), 3000);
-    }, 2000);
+        // ✅ ENVÍO REAL vía WhatsApp Business API (Meta)
+    let sentCount = 0;
+    let failedCount = 0;
+    const errors: string[] = [];
 
-    // 🔜 CUANDO TENGAS LA API REAL, reemplaza el setTimeout por:
-    /*
-    try {
-      const response = await fetch('/api/sendBulkMessage', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await user?.getIdToken()}`
-        },
-        body: JSON.stringify({
-          campaignId: selectedCampaign,
-          recipientIds: selectedContactIds,
-          message: messageText,
-          channel: sendChannel
-        })
-      });
-      const result = await response.json();
-      setSendResult({ sent: result.sent, failed: result.failed, summary: result.summary });
-    } catch (err) {
-      setSendResult({ sent: 0, failed: selectedContactIds.length, summary: '❌ Error de conexión' });
-    } finally {
-      setSending(false);
+    // Iterar sobre cada contacto seleccionado
+    for (const contactId of selectedContactIds) {
+      const contact = bulkContacts.find(c => c.id === contactId);
+      if (!contact?.telefono) {
+        failedCount++;
+        continue;
+      }
+
+      try {
+        // Limpiar número: solo dígitos, con código de país
+        const phoneDigits = contact.telefono.replace(/\D/g, '');
+        const to = phoneDigits.startsWith('57') ? phoneDigits : `57${phoneDigits}`;
+
+        // Llamar a nuestra API route local
+        const response = await fetch('/api/send-whatsapp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to, message: messageText }),
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+          sentCount++;
+        } else {
+          failedCount++;
+          errors.push(`${contact.nombre}: ${result.error || 'Error desconocido'}`);
+        }
+      } catch (err: unknown) {
+        failedCount++;
+        const msg = err instanceof Error ? err.message : 'Error de red';
+        errors.push(`${contact.nombre}: ${msg}`);
+      }
+
+      // Pequeña pausa para evitar rate limiting de Meta (1 segundo entre mensajes)
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
-    */
-  };
+
+    // ✅ Mostrar resultado final
+    let summary = `✅ ${sentCount} enviados, ${failedCount} fallidos`;
+    if (errors.length > 0) {
+      summary += ` | Errores: ${errors.slice(0, 3).join('; ')}${errors.length > 3 ? '...' : ''}`;
+    }
+
+    setSendResult({ sent: sentCount, failed: failedCount, summary });
+    setSending(false);
+    setSelectedContactIds([]);
+  };   
 
 // ✅ Tipo para items de alerta
 type AlertItem = {
@@ -1348,6 +1413,22 @@ const handleMarkNotified = (vehicleId: string, docType: string): void => {
     disabled={formLoading} 
   />
 </Grid> 
+
+
+{/* Teléfono del conductor */}
+<Grid item xs={12} sm={6}>
+  <TextField 
+    fullWidth 
+    label="Teléfono del conductor" 
+    name="telefono" 
+    value={formData.telefono} 
+    onChange={handleFormChange} 
+    placeholder="3101234567" 
+    disabled={formLoading} 
+    inputProps={{ pattern: '[0-9]*', maxLength: 10 }}
+    helperText="Solo dígitos, sin código de país"
+  />
+</Grid>
 
 
                     {/* SOAT Expiry */}
