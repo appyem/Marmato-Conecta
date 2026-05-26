@@ -195,10 +195,11 @@ const sendLegalConsentWhatsApp = async (telefono: string, nombre: string, _campa
     return true;
   };
 
-  // ✅ Verificar cédula duplicada en Firestore
-  const checkDuplicateCedula = async (cedula: string): Promise<boolean> => {
+    // ✅ Verificar placa duplicada en Firestore (único campo que no se repite)
+  const checkDuplicatePlaca = async (placa: string): Promise<boolean> => {
     try {
-      const q = query(collection(db, 'vehicles'), where('cedulaPropietario', '==', cedula));
+      // Buscar vehículos con la misma placa (ya está en mayúsculas en BD)
+      const q = query(collection(db, 'vehicles'), where('placa', '==', placa.toUpperCase().trim()));
       const snapshot = await getDocs(q);
       return !snapshot.empty;
     } catch {
@@ -215,10 +216,10 @@ const sendLegalConsentWhatsApp = async (telefono: string, nombre: string, _campa
     setFormMsg(null);
 
     try {
-      // Verificar cédula duplicada
-      const isDuplicate = await checkDuplicateCedula(formData.cedula);
+            // Verificar placa duplicada (único campo que debe ser único)
+      const isDuplicate = await checkDuplicatePlaca(formData.placa);
       if (isDuplicate) {
-        setFormMsg({ type: 'error', text: '⚠️ Esta cédula ya está registrada en el sistema. ¿Deseas continuar de todas formas?' });
+        setFormMsg({ type: 'error', text: `⚠️ La placa "${formData.placa.toUpperCase()}" ya está registrada en el sistema.` });
         setSubmitting(false);
         return;
       }
@@ -251,7 +252,7 @@ const sendLegalConsentWhatsApp = async (telefono: string, nombre: string, _campa
       if (formData.telefono) {
         sendLegalConsentWhatsApp(
           formData.telefono,
-          formData.propietario || formData.conductor,
+          formData.conductor || formData.propietario,  // ← Conductor primero, propietario como fallback
           campaignId || 'Sin campaña'
         );
       }
