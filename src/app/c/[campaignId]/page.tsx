@@ -132,26 +132,28 @@ const sendLegalConsentWhatsApp = async (telefono: string, nombre: string, _campa
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         to,
-                template: {
+                  template: {
           name: 'marmato_consentimiento_datos',
           language: { code: 'es' },
           components: [
             {
               type: 'body',
               parameters: [
-                { type: 'text', text: nombre }, // {{1}}: Nombre del ciudadano
-                { type: 'text', text: 'https://www.mintic.gov.co/portal/715/articles-2627_Resolucion_2238_de_2024.pdf' }, // {{2}}: Enlace política
+                { type: 'text', text: nombre },
+                { type: 'text', text: 'https://www.mintic.gov.co/portal/715/articles-2627_Resolucion_2238_de_2024.pdf' },
               ],
             },
-            // ✅ AGREGADO: Botón interactivo "Aceptar" (Quick Reply)
+            // ❌ COMENTAR O BORRAR ESTE BLOQUE TEMPORALMENTE:
+            /*
             {
               type: 'button',
               subType: 'quick_reply',
               index: 0,
               parameters: [
-                { type: 'payload', payload: 'SI_CONSENTIMIENTO_ACEPTADO' } // ← Payload único para detectar en webhook
+                { type: 'payload', payload: 'SI_CONSENTIMIENTO_ACEPTADO' }
               ],
             },
+            */
           ],
         },
       }),
