@@ -142,7 +142,7 @@ const sendLegalConsentWhatsApp = async (telefono: string, nombre: string, _campa
         to,
                   template: {
           name: 'marmato_consentimiento_datos',
-          language: { code: 'es' },
+          language: { code: 'es_CO' },
           components: [
             {
               type: 'body',

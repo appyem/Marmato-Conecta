@@ -454,7 +454,7 @@ const handleSelectChange = (event: SelectChangeEvent<string>): void => {
               to,
               template: {
                 name: 'marmato_consentimiento_datos', // ← Nombre EXACTO de tu plantilla aprobada
-                language: { code: 'es' },
+                language: { code: 'es_CO' },
                 components: [
                   {
                     type: 'body',
