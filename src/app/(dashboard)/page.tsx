@@ -91,16 +91,16 @@ const COLOMBIA_DEPARTAMENTOS = [
 ].sort();
 
 
-// ✅ Interfaz para mensajes de WhatsApp (tipado estricto, sin 'any')
 interface WhatsAppMessage {
   id: string;
   from: string;
   fromName: string;
-  to?: string;              // ← AGREGADO: para agrupar conversaciones por número
+  to?: string;
   body: string;
   direction: 'inbound' | 'outbound';
   read: boolean;
   replied: boolean;
+  consentAccepted?: boolean;  // ← AGREGADO: rastrea aceptación de términos
   timestamp: Timestamp | null;
 }
 
@@ -2251,6 +2251,26 @@ La integración con servicios de mensajería como Meta WhatsApp y Twilio ya est�
                         })}
                       </Typography>
                     </Box>
+                    
+                      {/* Badge de consentimiento aceptado (solo para inbound) */}
+                    {msg.direction === 'inbound' && msg.consentAccepted === true && (
+                      <Box sx={{ 
+                        display: 'inline-flex', 
+                        alignItems: 'center', 
+                        gap: 0.5, 
+                        mb: 1, 
+                        px: 1.5, 
+                        py: 0.5, 
+                        bgcolor: 'rgba(46, 125, 50, 0.2)', 
+                        borderRadius: 1,
+                        border: '1px solid rgba(46, 125, 50, 0.4)'
+                      }}>
+                        <CheckCircle fontSize="small" sx={{ color: '#4CAF50' }} />
+                        <Typography variant="caption" fontWeight={600} sx={{ color: '#4CAF50' }}>
+                          ✓ Consentimiento aceptado
+                        </Typography>
+                      </Box>
+                    )}
                     
                     {/* Cuerpo del mensaje */}
                     <Typography sx={{ mb: 2, whiteSpace: 'pre-wrap', color: '#E0E6ED' }}>

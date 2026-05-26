@@ -80,6 +80,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
         // Solo procesamos mensajes de texto (por ahora)
         if (msg.type === 'text' && msg.text?.body) {
+          // ✅ Detectar si es respuesta de consentimiento: "SI" o payload del botón
+          const bodyText = msg.text.body.trim().toUpperCase();
+          const isConsentResponse = bodyText === 'SI' || bodyText === 'SÍ' || bodyText.includes('SI_CONSENTIMIENTO');
+          
           await db.collection('whatsapp_messages').add({
             from: fromNumber,
             fromName,
@@ -90,8 +94,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             timestamp: serverTimestamp(),
             metaMessageId: msg.id,
             read: false,
-            replied: false
+            replied: false,
+            consentAccepted: isConsentResponse || undefined  // ← Solo true si aceptó
           });
+          
+          console.log(`📥 Mensaje recibido de ${fromNumber}: ${msg.text.body}${isConsentResponse ? ' ✓ Consentimiento aceptado' : ''}`);
           console.log(`📥 Mensaje recibido de ${fromNumber}: ${msg.text.body}`);
         }
       }
