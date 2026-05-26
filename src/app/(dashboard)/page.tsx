@@ -96,6 +96,7 @@ interface WhatsAppMessage {
   id: string;
   from: string;
   fromName: string;
+  to?: string;              // ← AGREGADO: para agrupar conversaciones por número
   body: string;
   direction: 'inbound' | 'outbound';
   read: boolean;
@@ -202,26 +203,27 @@ export default function DashboardPage() {
   }, []);
 
 
-  // ✅ Cargar mensajes entrantes desde Firestore (Client SDK)
+    // ✅ Cargar TODOS los mensajes (inbound + outbound) para formar hilos
   const fetchWhatsappMessages = useCallback(async (): Promise<void> => {
     try {
       setMessagesLoading(true);
       
+      // Query que trae AMBAS direcciones para poder armar conversaciones completas
       const q = query(
         collection(db, 'whatsapp_messages'),
-        where('direction', '==', 'inbound'),
-        limit(50)
+        limit(100)  // ← Aumentamos límite para tener más contexto de conversación
       );
       
       const snap = await getDocs(q);
       
-      // Mapeo explícito y seguro para evitar errores de tipo en runtime
+      // Mapeo explícito y seguro, incluyendo campo 'to' si existe
       const list = snap.docs.map(doc => {
         const data = doc.data();
         return {
           id: doc.id,
           from: data.from || '',
           fromName: data.fromName || '',
+          to: data.to || undefined,  // ← AGREGADO: campo opcional 'to'
           body: data.body || '',
           direction: data.direction as 'inbound' | 'outbound',
           read: data.read === true,
@@ -230,11 +232,11 @@ export default function DashboardPage() {
         } as WhatsAppMessage;
       });
       
-      // Ordenar en cliente por fecha (más reciente primero)
+      // Ordenar cronológicamente (más antiguo primero para chat natural)
       const sorted = list.sort((a, b) => {
         const tsA = a.timestamp ? a.timestamp.toMillis() : 0;
         const tsB = b.timestamp ? b.timestamp.toMillis() : 0;
-        return tsB - tsA;
+        return tsA - tsB;  // Ascendente: más antiguo → más reciente
       });
       
       setWhatsappMessages(sorted);
@@ -247,12 +249,12 @@ export default function DashboardPage() {
   }, []);
 
 
-    // ✅ Enviar respuesta por WhatsApp API
-  const handleSendReply = async (messageId: string, toNumber: string): Promise<void> => {
+  // ✅ Enviar respuesta por WhatsApp API + GUARDAR en Firestore para historial
+  const handleSendReply = async (messageId: string, toNumber: string, fromName: string): Promise<void> => {
     if (!replyText.trim()) return;
     
     try {
-      // 1. Enviar mensaje por API oficial
+      // 1. Enviar mensaje por API oficial de Meta
       const response = await fetch('/api/send-whatsapp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -264,16 +266,30 @@ export default function DashboardPage() {
       
       const result = await response.json();
       if (response.ok && result.success) {
-        // 2. Marcar como respondido en Firestore (Client SDK)
+        // 2. GUARDAR el mensaje enviado en Firestore como nuevo documento (para historial)
+        await addDoc(collection(db, 'whatsapp_messages'), {
+          from: user?.uid || 'system',      // Quién envía (admin/brigadista)
+          fromName: `${profile?.displayName || 'Admin'} → ${fromName}`,
+          to: toNumber,                      // ← AGREGADO: destinatario
+          body: replyText.trim(),
+          direction: 'outbound',             // ← Mensaje saliente
+          read: true,                        // Lo leemos al enviarlo
+          replied: false,
+          timestamp: Timestamp.now(),
+          metaMessageId: result.messageId || null,
+          type: 'text'
+        });
+        
+        // 3. Marcar el mensaje original como respondido
         await updateDoc(doc(db, 'whatsapp_messages', messageId), {
           replied: true,
           repliedAt: Timestamp.now(),
           replyText: replyText.trim()
         });
-        // 3. Actualizar UI localmente
-        setWhatsappMessages(prev => 
-          prev.map(m => m.id === messageId ? { ...m, replied: true } : m)
-        );
+        
+        // 4. Actualizar UI localmente (recargar para mostrar el nuevo mensaje)
+        await fetchWhatsappMessages();
+        
         setReplyText('');
         setReplyingTo(null);
       }
@@ -2255,7 +2271,7 @@ La integración con servicios de mensajería como Meta WhatsApp y Twilio ya est�
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && !e.shiftKey) {
                                 e.preventDefault();
-                                void handleSendReply(msg.id, msg.from);
+                                void handleSendReply(msg.id, msg.from, msg.fromName);
                               }
                             }}
                             disabled={messagesLoading}
@@ -2263,7 +2279,7 @@ La integración con servicios de mensajería como Meta WhatsApp y Twilio ya est�
                           <Button 
                             variant="contained" 
                             size="small"
-                            onClick={() => void handleSendReply(msg.id, msg.from)}
+                            onClick={() => void handleSendReply(msg.id, msg.from, msg.fromName || 'Contacto')}
                             disabled={!replyText.trim() || messagesLoading}
                           >
                             Enviar
