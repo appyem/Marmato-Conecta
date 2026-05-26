@@ -397,7 +397,10 @@ const sendLegalConsentWhatsApp = async (telefono: string, nombre: string, _campa
 
     // ✅ Formulario de caracterización (solo para autenticados) - Diseño institucional
   return (
-    <Box sx={{ 
+  <Box 
+    component="div"
+    suppressHydrationWarning={true}
+    sx={{ 
       minHeight: '100vh', 
       bgcolor: '#f8fafc',
       backgroundImage: 'url(https://raw.githubusercontent.com/appyem/imagenesappy/refs/heads/main/marmato%20fondo.jpeg)',
@@ -407,7 +410,8 @@ const sendLegalConsentWhatsApp = async (telefono: string, nombre: string, _campa
       backgroundAttachment: 'fixed',
       py: 4,
       px: 2
-    }} suppressHydrationWarning={true}>
+    }}
+  >
       <Container maxWidth="md">
         
         {/* Header institucional con logo y bienvenida */}
