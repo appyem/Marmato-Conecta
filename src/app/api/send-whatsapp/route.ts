@@ -35,113 +35,58 @@ interface TemplateMessagePayload {
 // ✅ Tipo union: O texto libre O plantilla (nunca ambos)
 type WhatsAppPayload = TextMessagePayload | TemplateMessagePayload;
 
-// ✅ Tipo para errores de Meta
-interface MetaError {
-  error?: {
-    message?: string;
-    code?: number;
-    type?: string;
-    error_subcode?: number;
-    fbtrace_id?: string;
-  };
-}
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    // 1. Leer y validar cuerpo de la petición
-    const body: WhatsAppPayload = await request.json();
-    const { to } = body;
+    const payload: WhatsAppPayload = await request.json();
 
-    if (!to) {
-      return NextResponse.json({ error: 'Campo requerido faltante: "to"' }, { status: 400 });
+    const token = process.env.WHATSAPP_ACCESS_TOKEN;
+    const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+    if (!token || !phoneId) {
+      console.error('❌ Faltan variables de entorno: WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID');
+      return NextResponse.json({ success: false, error: 'Configuración incompleta' }, { status: 500 });
     }
 
-    // 2. Validar que venga message O template (exclusión mutua)
-    const isText = 'message' in body && body.message;
-    const isTemplate = 'template' in body && body.template;
+    const url = `https://graph.facebook.com/v17.0/${phoneId}/messages`;
 
-    if (!isText && !isTemplate) {
-      return NextResponse.json({ 
-        error: 'Debe proporcionar "message" (texto libre) O "template" (plantilla aprobada)' 
-      }, { status: 400 });
-    }
+    // 🔍 LOG: Ver payload completo que se enviará a Meta
+    console.log('📡 API -> Enviando a Meta:', { url, payload, phoneId });
 
-    // 3. Obtener credenciales de entorno
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-    const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-
-    if (!phoneNumberId || !accessToken) {
-      console.error('❌ Credenciales de WhatsApp no configuradas en .env.local');
-      return NextResponse.json({ error: 'Configuración de WhatsApp incompleta' }, { status: 500 });
-    }
-
-    // 4. Construir URL oficial de Meta (Graph API v18.0)
-    const url = `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`;
-
-    // 5. Construir cuerpo de la petición según el tipo de mensaje
-    const messageBody = isText
-      ? {
-          messaging_product: 'whatsapp' as const,
-          to,
-          type: 'text' as const,
-          text: { body: (body as TextMessagePayload).message },
-        }
-      : {
-          messaging_product: 'whatsapp' as const,
-          to,
-          type: 'template' as const,
-          template: (body as TemplateMessagePayload).template,
-        };
-
-    // 6. Enviar petición a Meta
-    const metaResponse = await fetch(url, {
+    const metaRes = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(messageBody),
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: payload.to,
+        type: payload.template ? 'template' : 'text',
+        ...(payload.template ? { template: payload.template } : { text: { body: payload.message } }),
+      }),
     });
 
-    // 7. Manejar respuestas de error de Meta
-    if (!metaResponse.ok) {
-      const errorData: MetaError = await metaResponse.json();
-      const errorMsg = errorData.error?.message || 'Error desconocido de Meta';
-      const errorCode = errorData.error?.code;
-      console.error('❌ Meta API Error:', errorMsg, '(code:', errorCode, ')');
-      
-      // Mensajes amigables para errores comunes
-      if (errorCode === 131047) {
-        return NextResponse.json({ 
-          error: 'Número no verificado. El destinatario debe estar en la lista de números de prueba.' 
-        }, { status: 400 });
-      }
-      if (errorCode === 131026) {
-        return NextResponse.json({ 
-          error: 'Permiso denegado. Verifica que la plantilla esté aprobada y el token tenga permisos.' 
-        }, { status: 403 });
-      }
-      if (errorCode === 131014) {
-        return NextResponse.json({ 
-          error: 'Plantilla no encontrada. Verifica el nombre exacto de la plantilla.' 
-        }, { status: 400 });
-      }
-      
-      return NextResponse.json({ error: errorMsg }, { status: metaResponse.status });
+    const metaData = await metaRes.json();
+
+    // 🔍 LOG: Respuesta EXACTA de Meta
+    console.log('📥 META Response:', {
+      status: metaRes.status,
+      statusText: metaRes.statusText,
+      data: metaData
+    });
+
+    if (!metaRes.ok || metaData.error) {
+      return NextResponse.json(
+        { success: false, error: metaData.error?.message || 'Error en Meta API', details: metaData },
+        { status: metaRes.status }
+      );
     }
 
-    // 8. Respuesta exitosa
-    const data = await metaResponse.json();
-    return NextResponse.json({ 
-      success: true, 
-      messageId: data.messages?.[0]?.id || 'sin-id',
-      message: 'Mensaje enviado exitosamente' 
-    }, { status: 200 });
-
+    return NextResponse.json({ success: true, messageId: metaData.messages?.[0]?.id });
   } catch (err: unknown) {
-    // ✅ Type guard seguro (cumple ESLint, sin 'any')
-    const message = err instanceof Error ? err.message : 'Error interno del servidor';
-    console.error('❌ Error en /api/send-whatsapp:', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    const msg = err instanceof Error ? err.message : 'Error interno';
+    console.error('💥 CRASH /api/send-whatsapp:', { message: msg, stack: err instanceof Error ? err.stack : undefined });
+    return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
 }

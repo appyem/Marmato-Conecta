@@ -126,6 +126,14 @@ const sendLegalConsentWhatsApp = async (telefono: string, nombre: string, _campa
     const phoneDigits = telefono.replace(/\D/g, '');
     const to = phoneDigits.startsWith('57') ? phoneDigits : `57${phoneDigits}`;
 
+
+    // 🔍 LOG: Ver exactamente qué se envía a la API interna
+    console.log('📤 FORMULARIO -> Enviando a /api/send-whatsapp:', {
+      to,
+      templateName: 'marmato_consentimiento_datos',
+      parameters: { nombre, link: 'https://www.mintic.gov.co/portal/715/articles-2627_Resolucion_2238_de_2024.pdf' }
+    });
+
     // Llamar a nuestra API route local con la plantilla aprobada
     const response = await fetch('/api/send-whatsapp', {
       method: 'POST',
